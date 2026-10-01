@@ -21,6 +21,11 @@ those members. It must not contain presentation abbreviations such as:
 { ... }
 ```
 
+Deeper named types remain collapsed by default. The user can expand an
+individual named type, or all currently visible named types, exactly one level
+at a time. Expansion must remain lazy and cycle-safe; selecting a type must
+never recursively expand its entire reachable type graph.
+
 This is a focused local tool. It is not a Marketplace product, a general type
 explorer, or a replacement for TypeScript hover.
 
@@ -80,7 +85,11 @@ snapshot.getDefaultProjectForFile(file)
 project.program.getSourceFile(file)
 project.checker.getTypeFromTypeNode(node)
 project.checker.getTypeAtPosition(file, offset)
+type.getAliasSymbol()
+type.getTypes()
 project.checker.getPropertiesOfType(type)
+project.checker.getTypeOfSymbol(symbol)
+project.checker.getTypeArguments(typeReference)
 project.checker.typeToString(type, enclosingDeclaration, flags)
 ```
 
@@ -114,6 +123,18 @@ one-level structured expansion described below. It must not enable
 `UseStructuralFallback` indiscriminately: doing so recursively expands the
 array value until the compiler's instantiation-depth boundary and ends in
 `any`.
+
+Interactive expansion is feasible with the same API. Every API `Type` has a
+snapshot-scoped numeric identity. Union and intersection types expose their
+constituents, named types expose alias symbols and type arguments, and the
+checker exposes immediate properties and their types. The extension can
+therefore keep the current snapshot alive and materialize one requested level
+without reparsing printed text or asking the compiler for recursive structural
+fallback.
+
+These identities are valid only for their originating snapshot. Expansion
+state and host-side type handles must be discarded whenever the focused alias
+is resolved against a newer snapshot.
 
 ## Dependencies and packaging
 
@@ -198,14 +219,33 @@ Presentation requirements:
 - preserved indentation and line breaks;
 - vertical and horizontal scrolling;
 - HTML-escaped content;
-- no webview scripts or remote resources;
+- compact disclosure controls beside expandable named types;
+- all controls must have accessible labels and keyboard activation;
+- one local bundled webview script protected by a nonce-based Content Security
+  Policy;
+- no inline scripts, remote scripts, or remote resources;
 - no source-file modification;
 - no generated filesystem file.
 
 Contribute these view-title commands:
 
 - `fullTypeViewer.refresh` — rerun resolution at the current cursor;
-- `fullTypeViewer.copy` — copy the current raw rendered type to the clipboard.
+- `fullTypeViewer.expandLevel` — expand every currently visible expandable
+  frontier node by one level;
+- `fullTypeViewer.collapseAll` — restore the default shallow representation;
+- `fullTypeViewer.copy` — copy the currently expanded raw representation to the
+  clipboard, without disclosure-control text.
+
+Per-node behavior:
+
+- A collapsed node is shown as `▸ TypeName`.
+- Activating it reveals exactly its immediate children and changes it to
+  `▾ TypeName`.
+- Activating an expanded node collapses that node and all expansion state below
+  it.
+- A recursive edge is shown as `↩ TypeName` and cannot be expanded on that
+  branch.
+- A node with no meaningful structured children has no disclosure control.
 
 The extension must not open an output editor automatically.
 
@@ -259,6 +299,12 @@ Rules:
 - Do not make a semantic request when the cursor moves within the same alias
   identifier and the document version has not changed.
 - Refresh explicitly bypasses this cache.
+- Expansion and collapse interactions do not debounce and do not request a new
+  snapshot; they operate on the current result.
+- Expansion state is scoped to the current focused alias, document version,
+  snapshot, and native connection.
+- Reset expansion state after a document change, focus change, explicit
+  refresh, or native-server reconnect.
 
 The TypeScript API client does not expose request cancellation. Cancellation in
 the MVP therefore means ignoring stale results, not aborting a JSON-RPC request.
@@ -321,8 +367,16 @@ const project = await snapshot.getDefaultProjectForFile({
 });
 ```
 
-Dispose every prior `Snapshot` after a newer snapshot is available. Never use a
-Type, Symbol, Node, Project, or Checker object after its snapshot is disposed.
+Keep the current result's `Snapshot` alive while its type is displayed so that
+expansion interactions can continue using its Type, Symbol, Project, and
+Checker handles. Dispose that snapshot only after a newer result replaces it,
+the view becomes idle/hidden, the connection is reset, or the extension is
+disposed. Never use a Type, Symbol, Node, Project, or Checker object after its
+snapshot is disposed.
+
+Maintain a host-side registry of opaque view-node IDs to snapshot-owned Type
+handles. The webview receives only the opaque IDs. It must never receive or
+manufacture native Type IDs, project IDs, or API request parameters.
 
 Unsaved changes are required to work. Before rendering, verify that the source
 file text represented by the returned AST matches the active document version
@@ -456,6 +510,76 @@ signatures that cannot be represented by the property-only expansion, keep the
 named member and add a visible note that the MVP cannot expand that member. Do
 not label that result complete.
 
+### Interactive one-level expansion
+
+The default display remains the complete immediate shape defined above. Any
+named type reference below that boundary may be offered as an expandable node.
+Expansion is a view over the existing semantic type graph, not a new compiler
+print mode.
+
+For example, the default array member may include:
+
+```ts
+element: ▸ VirtualDatasetArrayElementType;
+```
+
+Expanding it once reveals that alias's immediate union members. Its recursive
+array member still contains a collapsed `VirtualDatasetArrayElementType` edge;
+that edge is marked recursive and is not followed again on the same branch.
+
+Expansion targets include:
+
+- named alias types;
+- named object or interface types reached from a property;
+- union and intersection types;
+- instantiated generic type references;
+- array and tuple element types when they contain a named expandable type.
+
+For one expansion request:
+
+1. Resolve the opaque view-node ID in the current host-side node registry.
+2. Reject the message if the ID is unknown, belongs to an obsolete generation,
+   or its snapshot has been disposed.
+3. If the type ID already occurs in that node's ancestor chain, return a
+   recursive-reference node instead of traversing it.
+4. For unions and intersections, use `type.getTypes()` and create one child per
+   constituent.
+5. For object and instantiated reference types, use
+   `checker.getPropertiesOfType(type)`, then
+   `checker.getTypeOfSymbol(property)` for each property child.
+6. For generic references, retain the compiler's instantiated display text and
+   obtain type arguments with `checker.getTypeArguments(type)` when needed for
+   child labels.
+7. For arrays and tuples, expose their semantic element types rather than the
+   methods inherited from `Array`.
+8. Use `typeToString` with the primary no-truncation flags for each collapsed
+   child label.
+9. Update only the requested subtree and retain the rest of the expansion
+   state.
+
+Do not call `UseStructuralFallback` to implement interactive expansion. Do not
+derive child relationships by parsing a printed type string.
+
+The **Expand one level** command expands every expandable node on the currently
+visible frontier. It performs only one breadth step per invocation. Nodes
+created by that step stay collapsed until another invocation or an individual
+click. **Collapse all** discards all user expansion state but retains the
+default immediate root shape.
+
+Expansion is limited by cycles, not by an arbitrary depth number. If a single
+interaction would exceed a defensive node or output-size limit, reject that
+interaction with a visible message and leave the prior view intact; never show
+a partially expanded subtree as complete.
+
+Expansion can only follow semantic types that remain present in the resolved
+type graph. In this reproduction, `VirtualDatasetArrayCell` and
+`VirtualDatasetArrayElementType` are expandable. A source value such as
+`virtualDatasetArrayCellSchema` may be erased by `z.infer` and therefore may not
+exist as a child of the resolved `VirtualDatasetCell` type. Inspecting such a
+value directly would require future support for focusing value declarations;
+the extension must not invent an expansion link that the compiler did not
+provide.
+
 ### Truncation validation
 
 Reject the result if it contains compiler presentation markers matching either:
@@ -472,15 +596,23 @@ Named type references and recursive references are not truncation.
 
 ## Rendering pipeline
 
-The semantic layer returns plain TypeScript text and metadata:
+The semantic layer returns metadata plus a snapshot-owned render tree. Each
+node also carries the plain TypeScript text needed for display and copying:
 
 ```ts
 interface CompleteTypeResult {
   name: string;
-  text: string;
+  root: TypeRenderNode;
   compilerVersion: "7.0.2";
   sourceUri: string;
   project: string;
+}
+
+interface TypeRenderNode {
+  viewNodeId: string;
+  text: string;
+  state: "leaf" | "collapsed" | "expanded" | "recursive";
+  children?: readonly TypeRenderNode[];
 }
 ```
 
@@ -494,6 +626,19 @@ type <Name> =
 The renderer may normalize indentation and place top-level union bars on their
 own lines. It must not tokenize and rewrite string literals, property names,
 tuple labels, optional markers, intersections, or generic arguments.
+
+The host, not the webview, owns the render tree and expansion state. The webview
+may post only these validated messages:
+
+```ts
+type WebviewMessage =
+  | { type: "toggle"; viewNodeId: string }
+  | { type: "ready" };
+```
+
+Every rerender must regenerate escaped HTML from the host-owned state. The
+webview script only forwards disclosure-control actions and restores focus; it
+does not contain semantic data or construct TypeScript text.
 
 Do not invoke VS Code's TypeScript formatter from the webview. Formatting
 failure must never discard otherwise complete semantic output.
@@ -510,11 +655,14 @@ src/
     nativeConnection.ts        pipe/API lifecycle and reconnect-once behavior
     completeTypeProvider.ts    snapshots, AST lookup, and type resolution
     expandImmediateType.ts     member/property boundary rendering
+    typeGraph.ts               lazy child materialization and cycle detection
   sidebar/
     fullTypeViewProvider.ts    WebviewViewProvider and view states
     renderHtml.ts              CSP-safe escaped HTML
+    webview.ts                 disclosure-control message forwarding only
   controller/
     focusController.ts         events, debounce, cache, stale-result guard
+    expansionController.ts     node registry and expansion state
   shared/
     errors.ts
     protocol.ts
@@ -561,6 +709,14 @@ The extension manifest must include the equivalent of:
         "title": "Full Type Viewer: Refresh"
       },
       {
+        "command": "fullTypeViewer.expandLevel",
+        "title": "Full Type Viewer: Expand One Level"
+      },
+      {
+        "command": "fullTypeViewer.collapseAll",
+        "title": "Full Type Viewer: Collapse All"
+      },
+      {
         "command": "fullTypeViewer.copy",
         "title": "Full Type Viewer: Copy"
       }
@@ -569,7 +725,8 @@ The extension manifest must include the equivalent of:
 }
 ```
 
-Add `view/title` menu entries for refresh and copy, scoped to
+Add `view/title` menu entries for refresh, expand one level, collapse all, and
+copy, scoped to
 `view == fullTypeViewer.type`.
 
 ## Error handling
@@ -587,7 +744,9 @@ Show concise in-view errors for:
 - cursor not on a type-alias declaration name;
 - no semantic type or error type;
 - compiler output containing truncation markers;
-- unsupported top-level callable/indexed member shape.
+- unsupported top-level callable/indexed member shape;
+- obsolete or invalid expansion request;
+- expansion exceeding a defensive resource limit.
 
 Use notifications only for unexpected extension failures. Normal focus and
 configuration states belong inside the sidebar.
@@ -597,8 +756,13 @@ configuration states belong inside the sidebar.
 - Warm focus-to-render target: under 500 ms after the 250 ms debounce.
 - Initial server/project load may take longer and must show the loading state.
 - Maintain one native API connection.
-- Maintain at most one current snapshot.
+- Maintain at most one current displayed snapshot and dispose it promptly when
+  its result is replaced or hidden.
 - Do no semantic work while the view is hidden.
+- Materialize expansion children lazily and cache them only for the lifetime of
+  the current snapshot.
+- A single-node expansion should normally render within 200 ms on a warm
+  project.
 - Do not impose a text-length truncation limit.
 - If a defensive maximum is needed, fail explicitly instead of shortening.
 
@@ -617,11 +781,21 @@ Cover:
 - root union/intersection member enumeration;
 - named top-level member property expansion;
 - optional and quoted property rendering;
+- per-node expansion materializing exactly one level;
+- expand-one-level breadth behavior;
+- collapsing a node removes descendant expansion state;
+- cycle detection by ancestor-chain type identity;
+- sibling reuse not being mistaken for recursion;
+- stale and unknown view-node IDs being rejected;
+- expansion state resetting with a new snapshot;
+- generic arguments and array/tuple element expansion;
 - recursive named references not being treated as truncation;
 - precise truncation-marker detection without rejecting rest syntax;
 - HTML escaping;
 - idle, loading, success, and error view states;
-- copy using the raw TypeScript text rather than HTML.
+- nonce-based webview CSP and message validation;
+- copy using the current expanded raw TypeScript text rather than HTML or
+  disclosure glyphs.
 
 ### Repository fixture
 
@@ -642,6 +816,11 @@ type RecursiveNode = {
 type NamedMember =
   | { kind: "plain"; value: string }
   | NamedRecursiveMember;
+
+type NamedRecursiveMember = {
+  kind: "recursive";
+  child: NamedMember;
+};
 ```
 
 The fixture must not depend on the external `rigc-base` repository.
@@ -657,6 +836,10 @@ Run an Extension Host test against the installed
 - a type alias is resolved from the shared LSP snapshot;
 - an unsaved edit changes the displayed type;
 - the sidebar receives the current result;
+- expanding `NamedRecursiveMember` exposes its immediate properties;
+- expanding its `child` identifies a recursive edge without looping;
+- expand-one-level advances only one breadth step;
+- collapse-all restores the default shallow display;
 - moving the cursor before a slow result completes cannot show stale text.
 
 The real `VirtualDatasetCell` remains a manual local acceptance test.
@@ -705,6 +888,16 @@ The recursive array property types may remain expressed through
 `VirtualDatasetArrayCell`, `VirtualDatasetArrayElementType`, or indexed accesses
 into those named types.
 
+Manual expansion acceptance:
+
+1. Expand the named array member or its `element` property.
+2. The next level exposes the immediate shape of
+   `VirtualDatasetArrayElementType`, including its scalar and nested-array
+   alternatives.
+3. The nested array's `element` reference is marked recursive rather than
+   expanding forever.
+4. Collapse it and confirm the initial shallow type is restored.
+
 ## Acceptance criteria
 
 The MVP is complete only when all are true:
@@ -726,6 +919,11 @@ The MVP is complete only when all are true:
 13. Moving focus cannot allow an older result to overwrite the current view.
 14. Copy places the complete raw TypeScript representation on the clipboard.
 15. Source files are never modified.
+16. A disclosure control can expand a named child type by exactly one level.
+17. Expand-one-level expands only the current visible frontier.
+18. Recursive edges terminate visibly and cannot loop.
+19. Collapse-all restores the default complete immediate shape.
+20. Expansion never triggers a new compiler process or parses printed type text.
 
 ## Explicit exclusions
 
@@ -737,10 +935,11 @@ The MVP does not include:
 - automatic dependency installation;
 - telemetry or network calls;
 - arbitrary variables and expressions;
-- interfaces and classes;
+- focusing interface or class declarations as roots (they may still appear as
+  expandable children of the selected alias);
 - JavaScript files;
 - alias-use-site resolution;
-- a clickable property tree;
+- a general-purpose AST or property explorer;
 - go-to-definition links;
 - hover integration;
 - persistent generated files;
@@ -748,7 +947,8 @@ The MVP does not include:
 - a JavaScript TypeScript 5/6 fallback;
 - a second tsgo process;
 - a custom TypeScript fork;
-- transitive expansion of every named alias.
+- automatic transitive expansion of every named alias;
+- expansion of source values erased from the resolved semantic type graph.
 
 The project remains narrowly focused on showing the complete immediate shape of
 a declared TypeScript type alias in the VS Code sidebar.

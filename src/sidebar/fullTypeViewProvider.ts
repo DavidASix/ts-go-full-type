@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { parseWebviewMessage, type ViewState } from "../shared/protocol";
 import { renderHtml } from "./renderHtml";
+import type { ThemeTokenPalette } from "./themePalette";
+import { resolveActiveThemeTokenPalette } from "./themePaletteResolver";
 
 export const VIEW_ID = "fullTypeViewer.type";
 
@@ -13,12 +15,21 @@ export interface FullTypeViewEvents {
 export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
   private state: ViewState = { kind: "idle", message: "Place the cursor on a type alias name." };
+  private palette: ThemeTokenPalette = {};
+  private paletteRequest = 0;
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly events: FullTypeViewEvents,
-  ) {}
+  ) {
+    this.disposables.push(vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("workbench.colorTheme")) {
+        void this.refreshPalette();
+      }
+    }));
+    void this.refreshPalette();
+  }
 
   public get visible(): boolean {
     return this.view?.visible === true;
@@ -57,6 +68,7 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   public dispose(): void {
+    this.paletteRequest += 1;
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
@@ -73,6 +85,17 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
       cspSource: webview.cspSource,
       scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
       nonce,
+      palette: this.palette,
     });
+  }
+
+  private async refreshPalette(): Promise<void> {
+    const request = ++this.paletteRequest;
+    const palette = await resolveActiveThemeTokenPalette();
+    if (request !== this.paletteRequest) {
+      return;
+    }
+    this.palette = palette;
+    this.render();
   }
 }

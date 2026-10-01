@@ -1,11 +1,13 @@
 import type * as vscode from "vscode";
 import type { ViewState } from "../shared/protocol";
 import { buildCompleteTypeLayout, type CodeLine, type CodeSegment } from "./codeLayout";
+import { normalizeThemeColor, type ThemeTokenPalette } from "./themePalette";
 
 export interface HtmlResources {
   readonly cspSource: string;
   readonly scriptUri: vscode.Uri;
   readonly nonce: string;
+  readonly palette?: ThemeTokenPalette;
 }
 
 export function renderHtml(state: ViewState, resources: HtmlResources): string {
@@ -25,16 +27,7 @@ export function renderHtml(state: ViewState, resources: HtmlResources): string {
     .notice { padding-bottom: 4px; }
     .scroll { box-sizing: border-box; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px; }
     .type-code {
-      --ft-code: var(--vscode-editor-foreground);
-      --ft-keyword: var(--vscode-symbolIcon-keywordForeground, var(--ft-code));
-      --ft-type: var(--vscode-symbolIcon-classForeground, var(--ft-code));
-      --ft-property: var(--vscode-symbolIcon-propertyForeground, var(--ft-code));
-      --ft-string: var(--vscode-symbolIcon-stringForeground, var(--ft-code));
-      --ft-number: var(--vscode-symbolIcon-numberForeground, var(--ft-code));
-      --ft-constant: var(--vscode-symbolIcon-constantForeground, var(--ft-code));
-      --ft-enum-member: var(--vscode-symbolIcon-enumeratorMemberForeground, var(--ft-code));
-      --ft-operator: var(--vscode-symbolIcon-operatorForeground, var(--ft-code));
-      --ft-comment: var(--vscode-descriptionForeground, var(--ft-code));
+${renderPaletteProperties(resources.palette)}
       box-sizing: border-box;
       min-width: max-content;
       color: var(--ft-code);
@@ -136,4 +129,23 @@ function renderSegment(segment: CodeSegment): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/\r|\n/g, " ");
+}
+
+function renderPaletteProperties(palette: ThemeTokenPalette | undefined): string {
+  const values: ReadonlyArray<readonly [string, keyof ThemeTokenPalette, string]> = [
+    ["--ft-keyword", "keyword", "var(--vscode-symbolIcon-keywordForeground, var(--ft-code))"],
+    ["--ft-type", "type", "var(--vscode-symbolIcon-classForeground, var(--ft-code))"],
+    ["--ft-property", "property", "var(--vscode-symbolIcon-propertyForeground, var(--ft-code))"],
+    ["--ft-string", "string", "var(--vscode-symbolIcon-stringForeground, var(--ft-code))"],
+    ["--ft-number", "number", "var(--vscode-symbolIcon-numberForeground, var(--ft-code))"],
+    ["--ft-constant", "constant", "var(--vscode-symbolIcon-constantForeground, var(--ft-code))"],
+    ["--ft-enum-member", "enumMember", "var(--vscode-symbolIcon-enumeratorMemberForeground, var(--ft-code))"],
+    ["--ft-operator", "operator", "var(--vscode-symbolIcon-operatorForeground, var(--ft-code))"],
+    ["--ft-comment", "comment", "var(--vscode-descriptionForeground, var(--ft-code))"],
+  ];
+  return [
+    "      --ft-code: var(--vscode-editor-foreground);",
+    ...values.map(([variable, key, fallback]) =>
+      `      ${variable}: ${normalizeThemeColor(palette?.[key]) ?? fallback};`),
+  ].join("\n");
 }

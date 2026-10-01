@@ -115,20 +115,26 @@ function semanticForeground(
 }
 
 function textMateForeground(rules: readonly TextMateRule[], scopes: readonly string[]): string | undefined {
-  for (let index = rules.length - 1; index >= 0; index -= 1) {
-    const rule = rules[index];
-    if (rule === undefined || !scopeMatches(rule.scope, scopes)) {
-      continue;
-    }
-    const foreground = normalizeThemeColor(rule.settings?.foreground);
-    if (foreground !== undefined) {
-      return foreground;
+  for (const exactOnly of [true, false]) {
+    for (let index = rules.length - 1; index >= 0; index -= 1) {
+      const rule = rules[index];
+      if (rule === undefined || !scopeMatches(rule.scope, scopes, exactOnly)) {
+        continue;
+      }
+      const foreground = normalizeThemeColor(rule.settings?.foreground);
+      if (foreground !== undefined) {
+        return foreground;
+      }
     }
   }
   return undefined;
 }
 
-function scopeMatches(ruleScope: string | readonly string[] | undefined, wanted: readonly string[]): boolean {
+function scopeMatches(
+  ruleScope: string | readonly string[] | undefined,
+  wanted: readonly string[],
+  exactOnly: boolean,
+): boolean {
   if (ruleScope === undefined) {
     return false;
   }
@@ -136,9 +142,8 @@ function scopeMatches(ruleScope: string | readonly string[] | undefined, wanted:
     .flatMap((scope) => scope.split(","))
     .flatMap((scope) => scope.trim().split(/\s+/))
     .filter((scope) => scope.length > 0);
-  return selectors.some((selector) => wanted.some(
-    (scope) => selector === scope || selector.startsWith(`${scope}.`),
-  ));
+  return selectors.some((selector) => wanted.some((scope) =>
+    exactOnly ? selector === scope : selector.startsWith(`${scope}.`)));
 }
 
 function stripJsonCommentsAndTrailingCommas(source: string): string {

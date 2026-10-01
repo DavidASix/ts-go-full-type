@@ -17,7 +17,9 @@ describe("theme token palette", () => {
         "property": { "foreground": "#112233" },
       },
       "tokenColors": [
+        { "scope": "string", "settings": { "foreground": "#A31515" } },
         { "scope": "string.quoted", "settings": { "foreground": "#445566" } },
+        { "scope": "string.regexp", "settings": { "foreground": "#811F3F" } },
         { "scope": ["entity.name.type", "support.type"], "settings": { "foreground": "#778899" } },
       ],
     }`);
@@ -38,7 +40,7 @@ describe("theme token palette", () => {
       keyword: "#abc",
       type: "#aabbccdd",
       property: "#112233",
-      string: "#445566",
+      string: "#a31515",
       operator: "#def",
     });
   });

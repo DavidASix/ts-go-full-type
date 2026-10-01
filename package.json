@@ -1,8 +1,8 @@
 {
   "name": "ts-full-type-viewer",
   "displayName": "Full Type Viewer",
-  "description": "Shows complete, lazily expandable TypeScript 7 alias types in the Explorer sidebar.",
-  "version": "0.0.1",
+  "description": "Shows complete, lazily expandable TypeScript 7 alias types in a dedicated sidebar view.",
+  "version": "0.0.2",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -24,8 +24,17 @@
     }
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fullTypeViewer",
+          "title": "Full Type Viewer",
+          "icon": "resources/full-type-viewer.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "fullTypeViewer": [
         {
           "id": "fullTypeViewer.type",
           "name": "Full Type",
@@ -85,7 +94,7 @@
     "check": "tsc --noEmit && vitest run",
     "test": "vitest run",
     "test:integration": "npm run build && node .test-build/runIntegration.js",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.1.vsix",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.2.vsix",
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {
@@ -107,6 +116,7 @@
     "dist/extension.js",
     "dist/extension.js.map",
     "dist/webview.js",
+    "resources/full-type-viewer.svg",
     "README.md",
     "LICENSE"
   ]

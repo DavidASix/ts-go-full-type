@@ -1,0 +1,113 @@
+{
+  "name": "ts-full-type-viewer",
+  "displayName": "Full Type Viewer",
+  "description": "Shows complete, lazily expandable TypeScript 7 alias types in the Explorer sidebar.",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.126.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onView:fullTypeViewer.type"
+  ],
+  "extensionDependencies": [
+    "TypeScriptTeam.native-preview"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "fullTypeViewer.type",
+          "name": "Full Type",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fullTypeViewer.refresh",
+        "title": "Full Type Viewer: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fullTypeViewer.expandLevel",
+        "title": "Full Type Viewer: Expand One Level",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "fullTypeViewer.collapseAll",
+        "title": "Full Type Viewer: Collapse All",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "fullTypeViewer.copy",
+        "title": "Full Type Viewer: Copy",
+        "icon": "$(copy)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fullTypeViewer.refresh",
+          "when": "view == fullTypeViewer.type",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fullTypeViewer.expandLevel",
+          "when": "view == fullTypeViewer.type",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fullTypeViewer.collapseAll",
+          "when": "view == fullTypeViewer.type",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fullTypeViewer.copy",
+          "when": "view == fullTypeViewer.type",
+          "group": "navigation@4"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "tsc --noEmit && vitest run",
+    "test": "vitest run",
+    "test:integration": "npm run build && node .test-build/runIntegration.js",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.1.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "typescript": "7.0.2"
+  },
+  "devDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.62.2",
+    "@types/node": "24.3.0",
+    "@types/vscode": "1.125.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.3.2",
+    "esbuild": "0.25.12",
+    "vitest": "4.0.18"
+  },
+  "overrides": {
+    "jws": "4.0.0"
+  },
+  "files": [
+    "dist/extension.js",
+    "dist/extension.js.map",
+    "dist/webview.js",
+    "README.md",
+    "LICENSE"
+  ]
+}

@@ -2,7 +2,7 @@
   "name": "ts-full-type-viewer",
   "displayName": "Full Type Viewer",
   "description": "Shows complete, lazily expandable TypeScript 7 alias types in a dedicated sidebar view.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -62,29 +62,59 @@
         "command": "fullTypeViewer.copy",
         "title": "Full Type Viewer: Copy",
         "icon": "$(copy)"
+      },
+      {
+        "command": "fullTypeViewer.enableWordWrap",
+        "title": "Full Type Viewer: Enable Word Wrap",
+        "icon": "$(word-wrap)"
+      },
+      {
+        "command": "fullTypeViewer.disableWordWrap",
+        "title": "Full Type Viewer: Disable Word Wrap",
+        "icon": "$(word-wrap)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "fullTypeViewer.refresh",
-          "when": "view == fullTypeViewer.type",
+          "command": "fullTypeViewer.enableWordWrap",
+          "when": "view == fullTypeViewer.type && !fullTypeViewer.wordWrap",
           "group": "navigation@1"
         },
         {
-          "command": "fullTypeViewer.expandLevel",
+          "command": "fullTypeViewer.disableWordWrap",
+          "when": "view == fullTypeViewer.type && fullTypeViewer.wordWrap",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fullTypeViewer.refresh",
           "when": "view == fullTypeViewer.type",
           "group": "navigation@2"
         },
         {
-          "command": "fullTypeViewer.collapseAll",
+          "command": "fullTypeViewer.expandLevel",
           "when": "view == fullTypeViewer.type",
           "group": "navigation@3"
         },
         {
-          "command": "fullTypeViewer.copy",
+          "command": "fullTypeViewer.collapseAll",
           "when": "view == fullTypeViewer.type",
           "group": "navigation@4"
+        },
+        {
+          "command": "fullTypeViewer.copy",
+          "when": "view == fullTypeViewer.type",
+          "group": "navigation@5"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "fullTypeViewer.enableWordWrap",
+          "when": "!fullTypeViewer.wordWrap"
+        },
+        {
+          "command": "fullTypeViewer.disableWordWrap",
+          "when": "fullTypeViewer.wordWrap"
         }
       ]
     }
@@ -94,7 +124,7 @@
     "check": "tsc --noEmit && vitest run",
     "test": "vitest run",
     "test:integration": "npm run build && node .test-build/runIntegration.js",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.2.vsix",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.3.vsix",
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {

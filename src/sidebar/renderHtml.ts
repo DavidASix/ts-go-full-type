@@ -8,10 +8,11 @@ export interface HtmlResources {
   readonly scriptUri: vscode.Uri;
   readonly nonce: string;
   readonly palette?: ThemeTokenPalette;
+  readonly wordWrap?: boolean;
 }
 
 export function renderHtml(state: ViewState, resources: HtmlResources): string {
-  const body = renderState(state);
+  const body = renderState(state, resources.wordWrap === true);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,6 +39,12 @@ ${renderPaletteProperties(resources.palette)}
       white-space: pre;
       tab-size: 2;
       user-select: text;
+    }
+    .type-code.word-wrap {
+      min-width: 0;
+      width: 100%;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
     .metadata { margin-bottom: 8px; color: var(--ft-comment); }
     .tok-keyword { color: var(--ft-keyword, var(--ft-code)); }
@@ -93,7 +100,7 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderState(state: ViewState): string {
+function renderState(state: ViewState, wordWrap: boolean): string {
   switch (state.kind) {
     case "idle":
     case "loading":
@@ -105,7 +112,8 @@ function renderState(state: ViewState): string {
       const notice = state.notice === undefined
         ? ""
         : `<div class="message error notice" role="alert">${escapeHtml(state.notice)}</div>`;
-      return `${notice}<div class="scroll"><div class="type-code"><div class="metadata">${renderLines(layout.metadata)}</div><div class="declaration">${renderLines(layout.code)}</div></div></div>`;
+      const codeClass = wordWrap ? "type-code word-wrap" : "type-code";
+      return `${notice}<div class="scroll"><div class="${codeClass}"><div class="metadata">${renderLines(layout.metadata)}</div><div class="declaration">${renderLines(layout.code)}</div></div></div>`;
     }
   }
 }

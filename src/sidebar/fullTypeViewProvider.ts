@@ -22,6 +22,7 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly events: FullTypeViewEvents,
+    private wordWrap: boolean,
   ) {
     this.disposables.push(vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("workbench.colorTheme")) {
@@ -67,6 +68,14 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     return this.state;
   }
 
+  public setWordWrap(enabled: boolean): void {
+    if (enabled === this.wordWrap) {
+      return;
+    }
+    this.wordWrap = enabled;
+    this.render();
+  }
+
   public dispose(): void {
     this.paletteRequest += 1;
     for (const disposable of this.disposables.splice(0)) {
@@ -86,6 +95,7 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
       scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
       nonce,
       palette: this.palette,
+      wordWrap: this.wordWrap,
     });
   }
 

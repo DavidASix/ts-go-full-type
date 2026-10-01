@@ -14,6 +14,8 @@ interface Runtime {
   readonly view: FullTypeViewProvider;
 }
 
+const WORD_WRAP_KEY = "fullTypeViewer.wordWrap";
+
 let runtime: Runtime | undefined;
 
 export interface FullTypeViewerTestingAPI {
@@ -26,13 +28,23 @@ export function activate(context: vscode.ExtensionContext): FullTypeViewerTestin
   const provider = new CompleteTypeProvider(connection);
   let focus: FocusController;
   let expansion: ExpansionController;
+  const wordWrap = context.workspaceState.get<boolean>(WORD_WRAP_KEY, false);
   const view = new FullTypeViewProvider(context.extensionUri, {
     onVisibilityChanged: (visible) => focus.onVisibilityChanged(visible),
     onToggle: (viewNodeId) => void expansion.toggle(viewNodeId),
-  });
+  }, wordWrap);
   expansion = new ExpansionController(view);
   focus = new FocusController(provider, expansion, view);
   runtime = { focus, expansion, provider, connection, view };
+
+  const setWordWrap = async (enabled: boolean): Promise<void> => {
+    view.setWordWrap(enabled);
+    await Promise.all([
+      context.workspaceState.update(WORD_WRAP_KEY, enabled),
+      vscode.commands.executeCommand("setContext", WORD_WRAP_KEY, enabled),
+    ]);
+  };
+  void vscode.commands.executeCommand("setContext", WORD_WRAP_KEY, wordWrap);
 
   context.subscriptions.push(
     view,
@@ -44,6 +56,8 @@ export function activate(context: vscode.ExtensionContext): FullTypeViewerTestin
     vscode.commands.registerCommand("fullTypeViewer.expandLevel", () => expansion.expandLevel()),
     vscode.commands.registerCommand("fullTypeViewer.collapseAll", () => expansion.collapseAll()),
     vscode.commands.registerCommand("fullTypeViewer.copy", () => expansion.copy()),
+    vscode.commands.registerCommand("fullTypeViewer.enableWordWrap", () => setWordWrap(true)),
+    vscode.commands.registerCommand("fullTypeViewer.disableWordWrap", () => setWordWrap(false)),
   );
   return {
     getViewState: () => view.getState(),

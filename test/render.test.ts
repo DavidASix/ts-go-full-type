@@ -140,6 +140,18 @@ describe("rendering", () => {
     expect(html).toContain("margin: 0 4px 0 2px");
     expect(renderCompleteType(expandable)).not.toMatch(/[▸▾↩]/);
   });
+
+  it("enables wrapping only when requested", () => {
+    const state: ViewState = { kind: "success", result, rawText: "" };
+    const unwrapped = renderHtml(state, resources());
+    const wrapped = renderHtml(state, { ...resources(), wordWrap: true });
+
+    expect(unwrapped).toContain('<div class="type-code">');
+    expect(unwrapped).not.toContain('<div class="type-code word-wrap">');
+    expect(wrapped).toContain('<div class="type-code word-wrap">');
+    expect(wrapped).toContain("white-space: pre-wrap");
+    expect(wrapped).toContain("overflow-wrap: anywhere");
+  });
 });
 
 function resources() {

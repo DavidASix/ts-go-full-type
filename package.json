@@ -2,7 +2,7 @@
   "name": "ts-full-type-viewer",
   "displayName": "Full Type Viewer",
   "description": "Shows complete, lazily expandable TypeScript 7 symbol types in a dedicated sidebar view.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -124,7 +124,7 @@
     "check": "tsc --noEmit && vitest run",
     "test": "vitest run",
     "test:integration": "npm run build && node .test-build/runIntegration.js",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.3.vsix",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --out ts-full-type-viewer-0.0.4.vsix",
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {

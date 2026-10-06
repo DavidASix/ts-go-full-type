@@ -179,7 +179,7 @@ The local installation path is:
 npm install
   -> npm run check
   -> npm run package
-  -> code-insiders --install-extension <generated.vsix> --force
+  -> code-insiders --install-extension ts-full-type-viewer-0.0.4.vsix --force
 ```
 
 No Marketplace publishing metadata, telemetry, update service, remote assets,
@@ -731,7 +731,7 @@ The extension manifest must include the equivalent of:
 {
   "name": "ts-full-type-viewer",
   "displayName": "Full Type Viewer",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.126.0"
   },
@@ -991,7 +991,8 @@ Manual expansion acceptance:
 
 The MVP is complete only when all are true:
 
-1. A locally packaged VSIX installs in VS Code Insiders.
+1. The locally packaged `ts-full-type-viewer-0.0.4.vsix` installs in VS Code
+   Insiders.
 2. Opening the Full Type Viewer view activates the extension.
 3. Focusing any identifier, including the declared name `VirtualDatasetCell`,
    automatically updates the sidebar after the debounce.

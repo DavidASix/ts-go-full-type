@@ -14,5 +14,5 @@ title action toggles wrapping for the current workspace.
 npm install
 npm run check
 npm run package
-code-insiders --install-extension ts-full-type-viewer-0.0.3.vsix --force
+code-insiders --install-extension ts-full-type-viewer-0.0.4.vsix --force
 ```

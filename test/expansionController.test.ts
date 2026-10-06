@@ -35,7 +35,7 @@ function session(generation: number) {
   const value = {
     result: result(generation),
     graph,
-    focus: { name: `Alias${generation}`, start: 0, end: 6, declaration: {} },
+    focus: { name: `Alias${generation}`, start: 0, end: 6, node: {} },
     dispose,
   } as unknown as ResolvedCompleteType;
   return { value, dispose, graph };

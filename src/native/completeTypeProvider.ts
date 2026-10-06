@@ -1,9 +1,16 @@
 import type * as vscode from "vscode";
-import type { Project, Snapshot } from "typescript/unstable/async";
+import {
+  SymbolFlags,
+  type Checker,
+  type Project,
+  type Snapshot,
+  type Symbol as AsyncSymbol,
+  type Type,
+} from "typescript/unstable/async";
 import type { SourceFile } from "typescript/unstable/ast";
 import { UserVisibleError } from "../shared/errors";
 import type { CompleteTypeResult } from "../shared/protocol";
-import { findAliasFocus, type AliasFocus } from "./focus";
+import { findSymbolFocus, type SymbolFocus } from "./focus";
 import { NativeConnection, type ConnectedAPI } from "./nativeConnection";
 import { TypeGraph } from "./typeGraph";
 
@@ -16,7 +23,7 @@ export interface ResolveRequest {
 export interface ResolvedCompleteType {
   readonly result: CompleteTypeResult;
   readonly graph: TypeGraph;
-  readonly focus: AliasFocus;
+  readonly focus: SymbolFocus;
   dispose(): Promise<void>;
 }
 
@@ -88,17 +95,21 @@ export class CompleteTypeProvider implements vscode.Disposable {
       if (snapshot === undefined || project === undefined || sourceFile === undefined) {
         throw new UserVisibleError("TypeScript 7 has not synchronized this edit yet. Save or retry.");
       }
-      const focus = findAliasFocus(sourceFile, request.offset);
+      const focus = findSymbolFocus(sourceFile, request.offset);
       if (focus === undefined) {
         await this.releaseSnapshot(snapshot);
         return undefined;
       }
-      const type = await project.checker.getTypeFromTypeNode(focus.declaration.type);
-      if (type === undefined || type.isErrorType()) {
-        throw new UserVisibleError("TypeScript 7 could not resolve a semantic type for this alias.");
+      const type = await resolveFocusedType(project.checker, uri, focus);
+      if (type === undefined) {
+        await this.releaseSnapshot(snapshot);
+        return undefined;
+      }
+      if (type.isErrorType()) {
+        throw new UserVisibleError("TypeScript 7 could not resolve a semantic type for this symbol.");
       }
 
-      const graph = new TypeGraph(project.checker, focus.declaration, request.generation);
+      const graph = new TypeGraph(project.checker, focus.node, request.generation);
       const root = await graph.createRoot(type);
       const result: CompleteTypeResult = {
         name: focus.name,
@@ -136,6 +147,44 @@ export class CompleteTypeProvider implements vscode.Disposable {
     }
     await snapshot.dispose();
   }
+}
+
+export async function resolveFocusedType(
+  checker: Checker,
+  uri: string,
+  focus: SymbolFocus,
+): Promise<Type | undefined> {
+  if (focus.typeNode !== undefined) {
+    return checker.getTypeFromTypeNode(focus.typeNode);
+  }
+  const positionalType = await checker.getTypeAtPosition({ uri }, focus.start);
+  if (positionalType !== undefined && !positionalType.isErrorType()) {
+    return positionalType;
+  }
+  const locationType = await checker.getTypeAtLocation(focus.node);
+  if (locationType !== undefined && !locationType.isErrorType()) {
+    return locationType;
+  }
+  const symbol = await checker.getSymbolAtLocation(focus.node);
+  if (symbol === undefined) {
+    return locationType ?? positionalType;
+  }
+  const symbolType = await resolveSymbolType(checker, symbol, focus);
+  return symbolType ?? locationType ?? positionalType;
+}
+
+async function resolveSymbolType(
+  checker: Checker,
+  selectedSymbol: AsyncSymbol,
+  focus: SymbolFocus,
+): Promise<Type | undefined> {
+  const symbol = selectedSymbol.flags & SymbolFlags.Alias
+    ? await checker.getAliasedSymbol(selectedSymbol)
+    : selectedSymbol;
+  const type = symbol.flags & SymbolFlags.Type
+    ? await checker.getDeclaredTypeOfSymbol(symbol)
+    : await checker.getTypeOfSymbolAtLocation(symbol, focus.node);
+  return type.isErrorType() ? undefined : type;
 }
 
 function delay(milliseconds: number): Promise<void> {

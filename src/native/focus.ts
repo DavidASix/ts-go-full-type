@@ -2,34 +2,36 @@ import {
   getTokenAtPosition,
   isIdentifier,
   isTypeAliasDeclaration,
+  isTypeReferenceNode,
+  SyntaxKind,
+  type Node,
   type SourceFile,
-  type TypeAliasDeclaration,
+  type TypeNode,
 } from "typescript/unstable/ast";
 
-export interface AliasFocus {
+export interface SymbolFocus {
   readonly name: string;
   readonly start: number;
   readonly end: number;
-  readonly declaration: TypeAliasDeclaration;
+  readonly node: Node;
+  readonly typeNode?: TypeNode;
 }
 
-export function findAliasFocus(sourceFile: SourceFile, offset: number): AliasFocus | undefined {
+export function findSymbolFocus(sourceFile: SourceFile, offset: number): SymbolFocus | undefined {
   if (offset < 0 || offset >= sourceFile.text.length) {
     return undefined;
   }
   const token = getTokenAtPosition(sourceFile, offset);
-  return qualifyAliasToken(sourceFile, token, offset);
+  return qualifySymbolToken(sourceFile, token, offset);
 }
 
-export function qualifyAliasToken(
+export function qualifySymbolToken(
   sourceFile: SourceFile,
   token: ReturnType<typeof getTokenAtPosition>,
   offset: number,
-): AliasFocus | undefined {
+): SymbolFocus | undefined {
   if (
     !isIdentifier(token) ||
-    !isTypeAliasDeclaration(token.parent) ||
-    token.parent.name !== token ||
     offset < token.getStart(sourceFile) ||
     offset >= token.getEnd()
   ) {
@@ -39,6 +41,22 @@ export function qualifyAliasToken(
     name: token.text,
     start: token.getStart(sourceFile),
     end: token.getEnd(),
-    declaration: token.parent,
+    node: token,
+    ...resolutionTypeNodeForToken(token),
   };
+}
+
+function resolutionTypeNodeForToken(token: Node): { readonly typeNode?: TypeNode } {
+  if (isTypeAliasDeclaration(token.parent) && token.parent.name === token) {
+    return { typeNode: token.parent.type };
+  }
+  for (let current: Node | undefined = token.parent; current !== undefined; current = current.parent) {
+    if (isTypeReferenceNode(current)) {
+      return { typeNode: current };
+    }
+    if (current.kind === SyntaxKind.SourceFile || current.parent === current) {
+      break;
+    }
+  }
+  return {};
 }

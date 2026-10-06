@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isSameCachedAlias, ResolutionGeneration } from "../src/controller/resolutionState";
+import { isSameCachedSymbol, ResolutionGeneration } from "../src/controller/resolutionState";
 
 afterEach(() => vi.useRealTimers());
 
@@ -26,12 +26,12 @@ describe("resolution state", () => {
     expect(state.isCurrent(first)).toBe(false);
   });
 
-  it("caches only cursor moves within the same alias and document version", () => {
+  it("caches only cursor moves within the same symbol and document version", () => {
     const cache = { uri: "file:///types.ts", version: 3, start: 10, end: 17 };
-    expect(isSameCachedAlias(cache, cache.uri, 3, 10)).toBe(true);
-    expect(isSameCachedAlias(cache, cache.uri, 3, 16)).toBe(true);
-    expect(isSameCachedAlias(cache, cache.uri, 3, 17)).toBe(false);
-    expect(isSameCachedAlias(cache, cache.uri, 4, 12)).toBe(false);
-    expect(isSameCachedAlias(cache, "file:///other.ts", 3, 12)).toBe(false);
+    expect(isSameCachedSymbol(cache, cache.uri, 3, 10)).toBe(true);
+    expect(isSameCachedSymbol(cache, cache.uri, 3, 16)).toBe(true);
+    expect(isSameCachedSymbol(cache, cache.uri, 3, 17)).toBe(false);
+    expect(isSameCachedSymbol(cache, cache.uri, 4, 12)).toBe(false);
+    expect(isSameCachedSymbol(cache, "file:///other.ts", 3, 12)).toBe(false);
   });
 });

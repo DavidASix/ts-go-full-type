@@ -4,16 +4,16 @@ import { CompleteTypeProvider } from "../native/completeTypeProvider";
 import { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
 import { ExpansionController } from "./expansionController";
 import {
-  isSameCachedAlias,
+  isSameCachedSymbol,
   ResolutionGeneration,
-  type AliasFocusCache,
+  type SymbolFocusCache,
 } from "./resolutionState";
 
-const IDLE_MESSAGE = "Place the cursor on a type alias name.";
+const IDLE_MESSAGE = "Place the cursor on a TypeScript symbol.";
 
 export class FocusController implements vscode.Disposable {
   private readonly generation = new ResolutionGeneration();
-  private focusCache: AliasFocusCache | undefined;
+  private focusCache: SymbolFocusCache | undefined;
   private disposed = false;
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -77,8 +77,12 @@ export class FocusController implements vscode.Disposable {
       void this.showIdle();
       return;
     }
-    const offset = editor.document.offsetAt(editor.selection.active);
-    if (!force && this.isSameCachedAlias(editor.document, offset)) {
+    const offset = selectedSymbolOffset(editor);
+    if (offset === undefined) {
+      void this.showIdle();
+      return;
+    }
+    if (!force && this.isSameCachedSymbol(editor.document, offset)) {
       return;
     }
     this.generation.schedule(250, (generation) => void this.resolve(generation, force));
@@ -102,12 +106,17 @@ export class FocusController implements vscode.Disposable {
       await this.showIdle();
       return;
     }
-    const offset = editor.document.offsetAt(editor.selection.active);
-    if (!force && this.isSameCachedAlias(editor.document, offset)) {
+    const offset = selectedSymbolOffset(editor);
+    if (offset === undefined) {
+      await this.showIdle();
       return;
     }
-    const word = editor.document.getText(editor.document.getWordRangeAtPosition(editor.selection.active));
-    this.view.setState({ kind: "loading", message: `Resolving ${word || "type alias"}...` });
+    if (!force && this.isSameCachedSymbol(editor.document, offset)) {
+      return;
+    }
+    const position = editor.document.positionAt(offset);
+    const word = editor.document.getText(editor.document.getWordRangeAtPosition(position));
+    this.view.setState({ kind: "loading", message: `Resolving ${word || "symbol"}...` });
     try {
       const session = await this.provider.resolve({
         document: editor.document,
@@ -150,8 +159,8 @@ export class FocusController implements vscode.Disposable {
     this.view.setState({ kind: "idle", message: IDLE_MESSAGE });
   }
 
-  private isSameCachedAlias(document: vscode.TextDocument, offset: number): boolean {
-    return isSameCachedAlias(
+  private isSameCachedSymbol(document: vscode.TextDocument, offset: number): boolean {
+    return isSameCachedSymbol(
       this.focusCache,
       document.uri.toString(),
       document.version,
@@ -176,7 +185,22 @@ function isEligibleEditor(editor: vscode.TextEditor | undefined): editor is vsco
   return (
     (document.languageId === "typescript" || document.languageId === "typescriptreact") &&
     document.uri.scheme === "file" &&
-    editor.selections.length === 1 &&
-    editor.selection.isEmpty
+    editor.selections.length === 1
   );
+}
+
+export function selectedSymbolOffset(editor: vscode.TextEditor): number | undefined {
+  const { document, selection } = editor;
+  if (selection.isEmpty) {
+    return document.offsetAt(selection.active);
+  }
+  const start = document.offsetAt(selection.start);
+  const end = document.offsetAt(selection.end);
+  const wordRange = document.getWordRangeAtPosition(selection.start);
+  if (wordRange === undefined) {
+    return undefined;
+  }
+  const wordStart = document.offsetAt(wordRange.start);
+  const wordEnd = document.offsetAt(wordRange.end);
+  return start >= wordStart && end <= wordEnd ? start : undefined;
 }

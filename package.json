@@ -1,7 +1,7 @@
 {
   "name": "ts-full-type-viewer",
   "displayName": "Full Type Viewer",
-  "description": "Shows complete, lazily expandable TypeScript 7 alias types in a dedicated sidebar view.",
+  "description": "Shows complete, lazily expandable TypeScript 7 symbol types in a dedicated sidebar view.",
   "version": "0.0.3",
   "private": true,
   "license": "UNLICENSED",

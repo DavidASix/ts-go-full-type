@@ -14,7 +14,7 @@ export interface FullTypeViewEvents {
 
 export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
-  private state: ViewState = { kind: "idle", message: "Place the cursor on a type alias name." };
+  private state: ViewState = { kind: "idle", message: "Place the cursor on a TypeScript symbol." };
   private palette: ThemeTokenPalette = {};
   private paletteRequest = 0;
   private readonly disposables: vscode.Disposable[] = [];

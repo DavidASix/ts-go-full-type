@@ -1,4 +1,4 @@
-export interface AliasFocusCache {
+export interface SymbolFocusCache {
   readonly uri: string;
   readonly version: number;
   readonly start: number;
@@ -40,8 +40,8 @@ export class ResolutionGeneration {
   }
 }
 
-export function isSameCachedAlias(
-  cache: AliasFocusCache | undefined,
+export function isSameCachedSymbol(
+  cache: SymbolFocusCache | undefined,
   uri: string,
   version: number,
   offset: number,

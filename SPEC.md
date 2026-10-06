@@ -3,8 +3,10 @@
 ## Objective
 
 Build a small, local-only VS Code Insiders extension in TypeScript. When the
-cursor is on the declared name of a TypeScript type alias, the extension shows
-that alias's resolved, untruncated type in a view in the VS Code sidebar.
+cursor is on, or a text selection stays within, a TypeScript identifier, the
+extension shows the symbol's resolved, untruncated type in a view in the VS
+Code sidebar. Identifiers may be selected at declarations or use sites,
+including type references.
 
 The first and primary target is:
 
@@ -85,6 +87,11 @@ snapshot.getDefaultProjectForFile(file)
 project.program.getSourceFile(file)
 project.checker.getTypeFromTypeNode(node)
 project.checker.getTypeAtPosition(file, offset)
+project.checker.getTypeAtLocation(node)
+project.checker.getSymbolAtLocation(node)
+project.checker.getAliasedSymbol(symbol)
+project.checker.getDeclaredTypeOfSymbol(symbol)
+project.checker.getTypeOfSymbolAtLocation(symbol, node)
 type.getAliasSymbol()
 type.getTypes()
 project.checker.getPropertiesOfType(type)
@@ -93,8 +100,9 @@ project.checker.getTypeArguments(typeReference)
 project.checker.typeToString(type, enclosingDeclaration, flags)
 ```
 
-The matching AST package, `typescript/unstable/ast`, supports token lookup and
-type-alias identification.
+The matching AST package, `typescript/unstable/ast`, supports token lookup,
+identifier qualification, type-alias identification, and type-reference-node
+identification.
 
 The relevant printer flags exist in TypeScript 7.0.2:
 
@@ -133,7 +141,7 @@ without reparsing printed text or asking the compiler for recursive structural
 fallback.
 
 These identities are valid only for their originating snapshot. Expansion
-state and host-side type handles must be discarded whenever the focused alias
+state and host-side type handles must be discarded whenever the focused symbol
 is resolved against a newer snapshot.
 
 ## Dependencies and packaging
@@ -179,8 +187,8 @@ or network access is required.
 
 ## Sidebar user experience
 
-Contribute a webview view named **Full Type** to the existing Explorer sidebar.
-Do not create a separate Activity Bar container for the MVP.
+Contribute a webview view named **Full Type** in a **Full Type Viewer** Activity
+Bar container.
 
 Suggested view identifier:
 
@@ -190,8 +198,8 @@ fullTypeViewer.type
 
 The view has these states:
 
-1. **Idle:** `Place the cursor on a type alias name.`
-2. **Loading:** `Resolving <AliasName>...`
+1. **Idle:** `Place the cursor on a TypeScript symbol.`
+2. **Loading:** `Resolving <SymbolName>...`
 3. **Success:** source metadata followed by the complete rendered type.
 4. **Error:** a concise actionable message.
 
@@ -229,12 +237,15 @@ Presentation requirements:
 
 Contribute these view-title commands:
 
-- `fullTypeViewer.refresh` — rerun resolution at the current cursor;
+- `fullTypeViewer.refresh` — rerun resolution at the current cursor or
+  selection;
 - `fullTypeViewer.expandLevel` — expand every currently visible expandable
   frontier node by one level;
 - `fullTypeViewer.collapseAll` — restore the default shallow representation;
 - `fullTypeViewer.copy` — copy the currently expanded raw representation to the
   clipboard, without disclosure-control text.
+- `fullTypeViewer.enableWordWrap` / `fullTypeViewer.disableWordWrap` — toggle
+  wrapping and persist the choice in workspace state.
 
 Per-node behavior:
 
@@ -249,30 +260,33 @@ Per-node behavior:
 
 The extension must not open an output editor automatically.
 
-## What “focus a type” means
+## What “focus a symbol” means
 
 For the MVP, update the view only when all these conditions hold:
 
 - there is an active editor;
 - its language is `typescript` or `typescriptreact`;
 - its URI scheme is `file`;
-- the selection is empty;
-- the cursor touches the identifier that is the declared name of a
-  `TypeAliasDeclaration`.
+- there is one cursor or selection;
+- the cursor touches a TypeScript identifier, or the selection stays within a
+  single identifier.
 
-Examples that qualify:
+Examples that qualify include declarations and use sites:
 
 ```ts
 type Example = SomeType;
      // ^ cursor on any character of Example
+
+const value: Example = getValue();
+      // ^ value                  ^ getValue
+             // ^ Example at its use site
+
+// Selecting all or part of one identifier also qualifies.
 ```
 
-These do not qualify in the MVP:
+These do not qualify:
 
-- whitespace or the `type` keyword;
-- a use of an alias rather than its declaration;
-- variables or expressions;
-- interfaces, classes, or enum names;
+- whitespace, punctuation, literals, or the `type` keyword;
 - JavaScript files;
 - untitled documents.
 
@@ -296,12 +310,12 @@ Rules:
 - Every resolution gets a monotonically increasing generation number.
 - A result may update the view only if its generation is still current.
 - A newer cursor move makes all older in-flight results stale.
-- Do not make a semantic request when the cursor moves within the same alias
+- Do not make a semantic request when the cursor moves within the same symbol
   identifier and the document version has not changed.
 - Refresh explicitly bypasses this cache.
 - Expansion and collapse interactions do not debounce and do not request a new
   snapshot; they operate on the current result.
-- Expansion state is scoped to the current focused alias, document version,
+- Expansion state is scoped to the current focused symbol, document version,
   snapshot, and native connection.
 - Reset expansion state after a document change, focus change, explicit
   refresh, or native-server reconnect.
@@ -388,10 +402,12 @@ TypeScript 7 has not synchronized this edit yet. Save or retry.
 
 Never silently show a type from stale on-disk text.
 
-### Alias identification
+### Symbol identification
 
-Convert the VS Code cursor position to a UTF-16 offset with
-`document.offsetAt(selection.active)`.
+For an empty selection, convert `selection.active` to a UTF-16 offset with
+`document.offsetAt`. For a non-empty selection, require its start and end to
+stay inside one VS Code word range and use the selection start as the lookup
+offset. Reject multi-cursor and multi-symbol selections.
 
 Use the snapshot program and TypeScript 7 AST utilities:
 
@@ -399,33 +415,55 @@ Use the snapshot program and TypeScript 7 AST utilities:
 import {
   getTokenAtPosition,
   isIdentifier,
-  isTypeAliasDeclaration,
 } from "typescript/unstable/ast";
 
 const sourceFile = await project.program.getSourceFile({ uri });
 const token = getTokenAtPosition(sourceFile, offset);
 ```
 
-The focus qualifies only when:
+After obtaining the AST, focus qualifies only when the token is an identifier
+and the chosen offset is inside its exact source range:
 
 ```ts
 isIdentifier(token) &&
-isTypeAliasDeclaration(token.parent) &&
-token.parent.name === token
+offset >= token.getStart(sourceFile) &&
+offset < token.getEnd()
 ```
 
 Use the token text as the display name.
 
 ### Type resolution
 
-Resolve the alias's right-hand side, not the alias symbol as a self-reference:
+For a type-alias declaration name, resolve the alias's right-hand side rather
+than the alias symbol as a self-reference. For an identifier in a type
+reference at a use site, walk its ancestors to the enclosing
+`TypeReferenceNode` and resolve that node. Do not treat an unrelated declaration
+nested inside broader type syntax, such as a property-signature name, as a type
+reference. This exposes the referenced definition while preserving use-site
+generic arguments:
 
 ```ts
 const type = await project.checker.getTypeFromTypeNode(token.parent.type);
+const useSiteType = await project.checker.getTypeFromTypeNode(enclosingTypeNode);
 ```
 
-If this returns no type or an error type, show an error state. Do not fall back
-to hover or to a separately spawned compiler.
+For every other identifier—including variables, properties, function names,
+and interface/class declaration names—resolve the semantic type at the token
+position:
+
+```ts
+const type = await project.checker.getTypeAtPosition({ uri }, token.getStart(sourceFile));
+```
+
+If the position API returns no type or an error type, use
+`checker.getTypeAtLocation(token)` from the same snapshot. If that also returns
+no usable type, call `checker.getSymbolAtLocation(token)`. Follow aliases with
+`checker.getAliasedSymbol`, then use `checker.getDeclaredTypeOfSymbol` for type
+symbols or `checker.getTypeOfSymbolAtLocation` for value symbols.
+
+If neither lookup returns a type, return to the idle state; if the resolved type
+is an error type, show an error state. Do not fall back to hover or to a
+separately spawned compiler.
 
 ### Primary compiler rendering
 
@@ -451,7 +489,7 @@ second TypeScript project service.
 
 For this MVP, complete means:
 
-- expand the selected alias;
+- expand the selected symbol's semantic type;
 - expose every member of its immediate union or intersection;
 - expose every immediate property of each object member;
 - retain named references below that property boundary;
@@ -575,10 +613,10 @@ Expansion can only follow semantic types that remain present in the resolved
 type graph. In this reproduction, `VirtualDatasetArrayCell` and
 `VirtualDatasetArrayElementType` are expandable. A source value such as
 `virtualDatasetArrayCellSchema` may be erased by `z.infer` and therefore may not
-exist as a child of the resolved `VirtualDatasetCell` type. Inspecting such a
-value directly would require future support for focusing value declarations;
-the extension must not invent an expansion link that the compiler did not
-provide.
+exist as a child of the resolved `VirtualDatasetCell` type. The user can focus
+that source value directly to inspect its own semantic type, but the extension
+must not invent an expansion link from a resolved type graph when the compiler
+does not provide one.
 
 ### Truncation validation
 
@@ -606,13 +644,24 @@ interface CompleteTypeResult {
   compilerVersion: "7.0.2";
   sourceUri: string;
   project: string;
+  generation: number;
 }
 
 interface TypeRenderNode {
   viewNodeId: string;
   text: string;
   state: "leaf" | "collapsed" | "expanded" | "recursive";
-  children?: readonly TypeRenderNode[];
+  layout: "atom" | "object" | "union" | "intersection" | "array" | "tuple";
+  children?: readonly TypeRenderEdge[];
+  provenance?: string;
+  note?: string;
+}
+
+interface TypeRenderEdge {
+  label?: string;
+  optional?: boolean;
+  annotation?: string;
+  node: TypeRenderNode;
 }
 ```
 
@@ -654,11 +703,13 @@ src/
     nativeExtension.ts         extension export validation and readiness
     nativeConnection.ts        pipe/API lifecycle and reconnect-once behavior
     completeTypeProvider.ts    snapshots, AST lookup, and type resolution
-    expandImmediateType.ts     member/property boundary rendering
+    focus.ts                   identifier and type-reference qualification
     typeGraph.ts               lazy child materialization and cycle detection
   sidebar/
     fullTypeViewProvider.ts    WebviewViewProvider and view states
+    codeLayout.ts              shared semantic-to-code layout
     renderHtml.ts              CSP-safe escaped HTML
+    renderText.ts              raw copy-text rendering
     webview.ts                 disclosure-control message forwarding only
   controller/
     focusController.ts         events, debounce, cache, stale-result guard
@@ -694,8 +745,17 @@ The extension manifest must include the equivalent of:
     }
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fullTypeViewer",
+          "title": "Full Type Viewer",
+          "icon": "resources/full-type-viewer.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "fullTypeViewer": [
         {
           "id": "fullTypeViewer.type",
           "name": "Full Type",
@@ -719,15 +779,24 @@ The extension manifest must include the equivalent of:
       {
         "command": "fullTypeViewer.copy",
         "title": "Full Type Viewer: Copy"
+      },
+      {
+        "command": "fullTypeViewer.enableWordWrap",
+        "title": "Full Type Viewer: Enable Word Wrap"
+      },
+      {
+        "command": "fullTypeViewer.disableWordWrap",
+        "title": "Full Type Viewer: Disable Word Wrap"
       }
     ]
   }
 }
 ```
 
-Add `view/title` menu entries for refresh, expand one level, collapse all, and
-copy, scoped to
-`view == fullTypeViewer.type`.
+Add `view/title` menu entries for the word-wrap toggle, refresh, expand one
+level, collapse all, and copy, scoped to `view == fullTypeViewer.type`. Gate
+the two word-wrap commands with the persisted `fullTypeViewer.wordWrap`
+context key.
 
 ## Error handling
 
@@ -741,15 +810,15 @@ Show concise in-view errors for:
 - server restart during a request;
 - file not owned by a configured or inferred project;
 - stale editor overlay;
-- cursor not on a type-alias declaration name;
-- no semantic type or error type;
+- an error semantic type after all resolution fallbacks;
 - compiler output containing truncation markers;
 - unsupported top-level callable/indexed member shape;
 - obsolete or invalid expansion request;
 - expansion exceeding a defensive resource limit.
 
 Use notifications only for unexpected extension failures. Normal focus and
-configuration states belong inside the sidebar.
+configuration states belong inside the sidebar. An ineligible focus or an
+identifier with no semantic type is an idle state, not an error.
 
 ## Performance
 
@@ -773,10 +842,16 @@ configuration states belong inside the sidebar.
 Cover:
 
 - native extension export validation;
-- alias-focus qualification;
+- symbol-focus qualification at declarations and use sites;
+- whole and partial single-identifier selections, plus rejection of selections
+  spanning multiple symbols;
+- type-reference-node qualification without misclassifying declaration names
+  nested in broader type syntax;
+- type resolution through alias/type syntax, semantic position, AST location,
+  and declared/value-symbol fallbacks;
 - UTF-16 cursor offsets;
 - generation/stale-result suppression;
-- debounce and same-alias caching;
+- debounce and same-symbol caching;
 - snapshot replacement and disposal;
 - root union/intersection member enumeration;
 - named top-level member property expansion;
@@ -821,6 +896,16 @@ type NamedRecursiveMember = {
   kind: "recursive";
   child: NamedMember;
 };
+
+type CallSiteType = {
+  fromDefinition: string;
+  nested: { count: number };
+};
+
+const selectedVariable: CallSiteType = {
+  fromDefinition: "fixture",
+  nested: { count: 1 },
+};
 ```
 
 The fixture must not depend on the external `rigc-base` repository.
@@ -833,7 +918,10 @@ Run an Extension Host test against the installed
 - the native extension activates;
 - an API pipe connection succeeds;
 - the fixture project is selected;
-- a type alias is resolved from the shared LSP snapshot;
+- declarations and use-site identifiers are resolved from the shared LSP
+  snapshot;
+- selecting a variable shows its semantic type;
+- selecting a type reference at a use site shows its definition;
 - an unsaved edit changes the displayed type;
 - the sidebar receives the current result;
 - expanding `NamedRecursiveMember` exposes its immediate properties;
@@ -842,7 +930,8 @@ Run an Extension Host test against the installed
 - collapse-all restores the default shallow display;
 - moving the cursor before a slow result completes cannot show stale text.
 
-The real `VirtualDatasetCell` remains a manual local acceptance test.
+The same Extension Host suite also exercises the real `VirtualDatasetCell`
+target as a local environment-specific acceptance test.
 
 ## Reproduction target
 
@@ -903,9 +992,9 @@ Manual expansion acceptance:
 The MVP is complete only when all are true:
 
 1. A locally packaged VSIX installs in VS Code Insiders.
-2. Opening the Full Type Explorer view activates the extension.
-3. Focusing the declared name `VirtualDatasetCell` automatically updates the
-   sidebar after the debounce.
+2. Opening the Full Type Viewer view activates the extension.
+3. Focusing any identifier, including the declared name `VirtualDatasetCell`,
+   automatically updates the sidebar after the debounce.
 4. The semantic result comes from the active TypeScript 7 native server through
    its API-session pipe.
 5. No second compiler or project service is started.
@@ -924,6 +1013,11 @@ The MVP is complete only when all are true:
 18. Recursive edges terminate visibly and cannot loop.
 19. Collapse-all restores the default complete immediate shape.
 20. Expansion never triggers a new compiler process or parses printed type text.
+21. Focusing a variable or other value symbol shows its semantic type.
+22. Focusing a type reference at a use site shows its definition while
+    preserving its use-site type arguments.
+23. A whole or partial selection within one identifier resolves that symbol;
+    a selection spanning multiple symbols returns the view to idle.
 
 ## Explicit exclusions
 
@@ -934,11 +1028,7 @@ The MVP does not include:
 - VS Code Stable support;
 - automatic dependency installation;
 - telemetry or network calls;
-- arbitrary variables and expressions;
-- focusing interface or class declarations as roots (they may still appear as
-  expandable children of the selected alias);
 - JavaScript files;
-- alias-use-site resolution;
 - a general-purpose AST or property explorer;
 - go-to-definition links;
 - hover integration;
@@ -950,5 +1040,5 @@ The MVP does not include:
 - automatic transitive expansion of every named alias;
 - expansion of source values erased from the resolved semantic type graph.
 
-The project remains narrowly focused on showing the complete immediate shape of
-a declared TypeScript type alias in the VS Code sidebar.
+The project remains narrowly focused on showing the complete immediate semantic
+type of a selected TypeScript symbol in the VS Code sidebar.

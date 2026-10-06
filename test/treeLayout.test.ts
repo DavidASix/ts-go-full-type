@@ -30,6 +30,11 @@ describe("type tree", () => {
     expect(tuple.summary).toBe("readonly tuple");
   });
 
+  it("labels constrained type details separately from callable nodes", () => {
+    const tree = buildTypeTree({ ...result({ viewNodeId: "p", text: "T", typeKind: "details", state: "expanded", layout: "details" }), name: "T" });
+    expect(tree).toMatchObject({ summary: "type", icon: "◇" });
+  });
+
   it("renders only visible branches and never offers primitive or recursive nodes as expandable", () => {
     const recursive: TypeRenderNode = { viewNodeId: "1:cycle", text: "Example", state: "recursive", layout: "atom" };
     const collapsed: TypeRenderNode = { viewNodeId: "1:child", text: "Nested", state: "collapsed", layout: "atom", children: [{ label: "hidden", node: leaf }] };

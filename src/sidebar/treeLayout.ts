@@ -18,7 +18,7 @@ export function buildTypeTree(result: CompleteTypeResult): TypeTreeItem {
 function item(node: TypeRenderNode, label: string, path: string): TypeTreeItem {
   const kind = node.typeKind ?? node.layout;
   const icon = kind === "object" ? "{}" : kind === "array" ? "[]" : kind === "tuple" ? "[·]"
-    : kind === "union" ? "∪" : kind === "intersection" ? "∩" : (kind === "details" || kind === "function") ? "ƒ"
+    : kind === "union" ? "∪" : kind === "intersection" ? "∩" : kind === "function" ? "ƒ"
     : /^(number|bigint|\d)/.test(node.text) ? "#"
     : /^(string|["'`])/.test(node.text) ? "abc" : "◇";
   const iconClass = kind === "atom" ? "primitive" : kind;
@@ -51,5 +51,5 @@ function summarize(text: string, kind: string): string {
 }
 
 function kindLabel(kind: string): string {
-  return kind === "details" ? "signature" : kind === "atom" ? "type" : kind;
+  return kind === "details" ? "type" : kind === "atom" ? "type" : kind;
 }

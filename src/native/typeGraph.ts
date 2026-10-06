@@ -291,7 +291,7 @@ export class TypeGraph {
     return node;
   }
 
-  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "details"): TypeRenderNode {
+  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "function"): TypeRenderNode {
     const node: TypeRenderNode = { viewNodeId: this.allocateId(), text, typeKind, state: "collapsed", layout: "atom" };
     this.registry.set(node.viewNodeId, { node, load });
     return node;

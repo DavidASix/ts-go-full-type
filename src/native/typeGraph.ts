@@ -267,9 +267,13 @@ export class TypeGraph {
     if (ancestors.includes(type.id)) return { ...this.leaf(text), state: "recursive" };
     if (!(await this.isExpandable(type))) return this.leaf(await this.print(type));
     const branchAncestors = [...ancestors, type.id];
-    const typeKind: NodeLayout = type.isUnionType() ? "union" : type.isIntersectionType() ? "intersection"
+    const callable = type.isObjectType() &&
+      (await this.checker.getPropertiesOfType(type)).length === 0 &&
+      ((await this.checker.getSignaturesOfType(type, SignatureKind.Call)).length > 0 ||
+        (await this.checker.getSignaturesOfType(type, SignatureKind.Construct)).length > 0);
+    const typeKind: NodeLayout | "function" = type.isUnionType() ? "union" : type.isIntersectionType() ? "intersection"
       : await this.checker.isTupleType(type) ? "tuple" : await this.checker.isArrayType(type) ? "array"
-      : type.isObjectType() ? "object" : "details";
+      : callable ? "function" : type.isObjectType() ? "object" : "details";
     const node = this.register(text, () => this.materialize(type, branchAncestors), typeKind);
     if (type.isObjectType() || type.isIntersectionType()) {
       const entry = this.getEntry(node.viewNodeId);
@@ -283,7 +287,7 @@ export class TypeGraph {
     return node;
   }
 
-  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout = "details"): TypeRenderNode {
+  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "details"): TypeRenderNode {
     const node: TypeRenderNode = { viewNodeId: this.allocateId(), text, typeKind, state: "collapsed", layout: "atom" };
     this.registry.set(node.viewNodeId, { node, load });
     return node;

@@ -73,6 +73,7 @@ export async function run(): Promise<void> {
   await api.toggle(indexedValue.viewNodeId);
   assert.ok(edge(indexedValue, "enabled"), "index value exposes its properties");
   const handler = edge(tree, "handler");
+  assert.equal(handler.typeKind, "function");
   await api.toggle(handler.viewNodeId);
   const call = edge(handler, "call");
   await api.toggle(call.viewNodeId);
@@ -83,6 +84,7 @@ export async function run(): Promise<void> {
   await api.toggle(returns.viewNodeId);
   assert.equal(edge(returns, "result").text, "number");
   const factory = edge(tree, "factory");
+  assert.equal(factory.typeKind, "function");
   await api.toggle(factory.viewNodeId);
   const construct = edge(factory, "new");
   await api.toggle(construct.viewNodeId);

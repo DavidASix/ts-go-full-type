@@ -12,7 +12,7 @@ export interface TypeRenderEdge {
 export interface TypeRenderNode {
   readonly viewNodeId: string;
   readonly text: string;
-  readonly typeKind?: NodeLayout;
+  readonly typeKind?: NodeLayout | "function";
   state: ViewNodeState;
   layout: NodeLayout;
   children?: readonly TypeRenderEdge[];

@@ -116,10 +116,13 @@ describe("rendering", () => {
     expect(raw).toContain(expected);
 
     const html = renderHtml({ kind: "success", result: nested, rawText: raw }, resources());
-    expect(stripMarkup(html)).toContain(expected);
+    expect(html).toContain('role="tree"');
+    expect(html).toContain('class="tree-label">record</span>');
+    expect(html).toContain('aria-level="2"');
+    expect(html).toContain('class="tree-group" role="group"');
   });
 
-  it("renders separated native disclosure buttons with accurate state", () => {
+  it("renders indented tree rows with accurate expansion state and one tab stop", () => {
     const expandable: CompleteTypeResult = {
       ...result,
       root: {
@@ -134,10 +137,11 @@ describe("rendering", () => {
       },
     };
     const html = renderHtml({ kind: "success", result: expandable, rawText: "" }, resources());
-    expect(html).toContain('class="disclosure" type="button"');
-    expect(html).toContain('aria-label="Expand Child" aria-expanded="false"');
-    expect(html).toContain("width: 18px");
-    expect(html).toContain("margin: 0 4px 0 2px");
+    expect(html).toContain('role="treeitem" tabindex="-1" data-node-id="2:1"');
+    expect(html).toContain('aria-label="child: Child" aria-expanded="false"');
+    expect(html).toContain('class="disclosure" aria-hidden="true">▸</span>');
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toContain("flex: 0 0 18px");
     expect(renderCompleteType(expandable)).not.toMatch(/[▸▾↩]/);
   });
 
@@ -146,9 +150,9 @@ describe("rendering", () => {
     const unwrapped = renderHtml(state, resources());
     const wrapped = renderHtml(state, { ...resources(), wordWrap: true });
 
-    expect(unwrapped).toContain('<div class="type-code">');
-    expect(unwrapped).not.toContain('<div class="type-code word-wrap">');
-    expect(wrapped).toContain('<div class="type-code word-wrap">');
+    expect(unwrapped).toContain('<ul class="type-tree"');
+    expect(unwrapped).not.toContain('<ul class="type-tree word-wrap"');
+    expect(wrapped).toContain('<ul class="type-tree word-wrap"');
     expect(wrapped).toContain("white-space: pre-wrap");
     expect(wrapped).toContain("overflow-wrap: anywhere");
   });
@@ -160,14 +164,4 @@ function resources() {
     scriptUri: { toString: () => "vscode-webview://webview/dist/webview.js" } as never,
     nonce: "fixedNonce",
   };
-}
-
-function stripMarkup(html: string): string {
-  const body = html.match(/<div class="declaration">([\s\S]*?)<\/div>/)?.[1] ?? "";
-  return body
-    .replace(/<[^>]+>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"');
 }

@@ -28,6 +28,17 @@ export async function run(): Promise<void> {
   assert.match(state.rawText, /kind: "l"/);
   assert.ok(state.result.project.endsWith("fixtures/tsconfig.json"), "fixture configured project is selected");
 
+  await focusIdentifier(editor, document, "selectedVariable");
+  state = await waitForSuccess(api, "selectedVariable");
+  assert.match(state.rawText, /fromDefinition: string/);
+  assert.match(state.rawText, /nested:/);
+
+  await focusIdentifier(editor, document, "CallSiteType", "const selectedVariable: ");
+  state = await waitForSuccess(api, "CallSiteType");
+  assert.match(state.rawText, /fromDefinition: string/);
+  assert.match(state.rawText, /count: number/);
+
+  await focusAlias(editor, document, "LargeUnion");
   const lastMember = '| { kind: "l"; value: unknown };';
   const semicolon = document.getText().indexOf(lastMember) + lastMember.length - 1;
   assert.ok(semicolon >= lastMember.length - 1, "fixture contains the last LargeUnion member");
@@ -129,6 +140,19 @@ async function focusAlias(
 ): Promise<void> {
   const offset = document.getText().indexOf(`type ${name}`) + "type ".length;
   assert.ok(offset >= "type ".length, `fixture contains ${name}`);
+  const position = document.positionAt(offset);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position));
+}
+
+async function focusIdentifier(
+  editor: vscode.TextEditor,
+  document: vscode.TextDocument,
+  name: string,
+  prefix = "",
+): Promise<void> {
+  const offset = document.getText().indexOf(`${prefix}${name}`) + prefix.length;
+  assert.ok(offset >= prefix.length, `fixture contains ${prefix}${name}`);
   const position = document.positionAt(offset);
   editor.selection = new vscode.Selection(position, position);
   editor.revealRange(new vscode.Range(position, position));

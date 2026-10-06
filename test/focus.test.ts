@@ -48,4 +48,53 @@ describe("symbol focus qualification", () => {
     });
     expect(qualifySymbolToken(sourceFile, wrongParent, start)?.typeNode).toBeUndefined();
   });
+
+  it("captures the enclosing type node at a use site", () => {
+    const text = "const value: Example<string> = source;";
+    const start = text.indexOf("Example");
+    const sourceFile = { text } as SourceFile;
+    const root = { kind: SyntaxKind.SourceFile } as Node;
+    Object.assign(root, { parent: root });
+    const typeNode = { kind: SyntaxKind.TypeReference, parent: root } as Node;
+    const token = {
+      kind: SyntaxKind.Identifier,
+      parent: typeNode,
+      text: "Example",
+      getStart: () => start,
+      getEnd: () => start + "Example".length,
+    } as unknown as Node;
+
+    expect(qualifySymbolToken(sourceFile, token, start)?.typeNode).toBe(typeNode);
+  });
+
+  it("does not mistake a declaration nested in type syntax for a type reference", () => {
+    const text = "type Shape = { value: string };";
+    const start = text.indexOf("value");
+    const sourceFile = { text } as SourceFile;
+    const root = { kind: SyntaxKind.SourceFile } as Node;
+    Object.assign(root, { parent: root });
+    const typeLiteral = { kind: SyntaxKind.TypeLiteral, parent: root } as Node;
+    const property = { kind: SyntaxKind.PropertySignature, parent: typeLiteral } as Node;
+    const token = {
+      kind: SyntaxKind.Identifier,
+      parent: property,
+      text: "value",
+      getStart: () => start,
+      getEnd: () => start + "value".length,
+    } as unknown as Node;
+
+    expect(qualifySymbolToken(sourceFile, token, start)?.typeNode).toBeUndefined();
+  });
+
+  it("rejects non-identifiers and offsets outside the token", () => {
+    const text = "const value = 1;";
+    const sourceFile = { text } as SourceFile;
+    const token = {
+      kind: SyntaxKind.NumericLiteral,
+      parent: {},
+      getStart: () => 14,
+      getEnd: () => 15,
+    } as unknown as Node;
+    expect(qualifySymbolToken(sourceFile, token, 14)).toBeUndefined();
+  });
 });

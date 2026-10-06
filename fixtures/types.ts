@@ -30,4 +30,22 @@ type NamedMemberHolder = {
   member: NamedRecursiveMember;
 };
 
-export type { LargeUnion, NamedMember, NamedMemberHolder, NamedRecursiveMember, RecursiveNode };
+type CallSiteType = {
+  fromDefinition: string;
+  nested: { count: number };
+};
+
+const selectedVariable: CallSiteType = {
+  fromDefinition: "fixture",
+  nested: { count: 1 },
+};
+
+export {
+  type CallSiteType,
+  type LargeUnion,
+  type NamedMember,
+  type NamedMemberHolder,
+  type NamedRecursiveMember,
+  type RecursiveNode,
+  selectedVariable,
+};

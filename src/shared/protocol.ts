@@ -1,6 +1,6 @@
 export type ViewNodeState = "leaf" | "collapsed" | "expanded" | "recursive";
 
-export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple";
+export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple" | "details";
 
 export interface TypeRenderEdge {
   readonly label?: string;
@@ -12,9 +12,11 @@ export interface TypeRenderEdge {
 export interface TypeRenderNode {
   readonly viewNodeId: string;
   readonly text: string;
+  readonly typeKind?: NodeLayout;
   state: ViewNodeState;
   layout: NodeLayout;
   children?: readonly TypeRenderEdge[];
+  expressionText?: string;
   readonly provenance?: string;
   readonly note?: string;
 }

@@ -3,41 +3,37 @@ import {
   SignatureKind,
   SymbolFlags,
   type Checker,
+  type Signature,
   type Type,
 } from "typescript/unstable/async";
 import type { Node } from "typescript/unstable/ast";
 import { UserVisibleError } from "../shared/errors";
-import type {
-  NodeLayout,
-  TypeRenderEdge,
-  TypeRenderNode,
-} from "../shared/protocol";
+import type { NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
 import { hasPresentationTruncation } from "./truncation";
 
-const PRINT_FLAGS =
-  NodeBuilderFlags.NoTruncation |
-  NodeBuilderFlags.MultilineObjectLiterals |
-  NodeBuilderFlags.InTypeAlias;
+const PRINT_FLAGS = NodeBuilderFlags.NoTruncation |
+  NodeBuilderFlags.MultilineObjectLiterals | NodeBuilderFlags.InTypeAlias;
 const MAX_NODES = 5_000;
 const MAX_OUTPUT = 2_000_000;
-
-interface RegistryEntry {
-  readonly generation: number;
-  readonly type: Type;
-  readonly ancestors: readonly number[];
-  readonly node: TypeRenderNode;
-}
 
 interface Materialized {
   readonly layout: NodeLayout;
   readonly children: readonly TypeRenderEdge[];
-  readonly note?: string;
+  readonly expressionText?: string;
+}
+
+interface RegistryEntry {
+  readonly node: TypeRenderNode;
+  readonly load: () => Promise<Materialized>;
+  readonly loadBoundary?: () => Promise<Materialized>;
 }
 
 export class TypeGraph {
   private readonly registry = new Map<string, RegistryEntry>();
   private nextNodeId = 1;
   private root: TypeRenderNode | undefined;
+  private rootType: Type | undefined;
+  private pending: Promise<void> = Promise.resolve();
 
   public constructor(
     private readonly checker: Checker,
@@ -47,344 +43,276 @@ export class TypeGraph {
 
   public async createRoot(type: Type): Promise<TypeRenderNode> {
     this.registry.clear();
-    this.nextNodeId = 1;
-    const text = await this.print(type);
-    const root: TypeRenderNode = {
-      viewNodeId: "",
-      text,
-      state: "expanded",
-      layout: "atom",
-    };
-    const materialized = await this.materialize(type, [type.id], true);
-    root.layout = materialized.layout;
-    root.children = materialized.children;
-    if (materialized.note !== undefined) {
-      Object.assign(root, { note: materialized.note });
+    this.rootType = type;
+    this.root = await this.createChild(type, []);
+    if (this.root.state === "collapsed") {
+      await this.expandEntry(this.getEntry(this.root.viewNodeId), true);
     }
-    this.root = root;
     this.assertWithinLimits();
-    return root;
+    return this.root;
   }
 
-  public async toggle(viewNodeId: string): Promise<void> {
-    const entry = this.getEntry(viewNodeId);
-    if (entry.node.state === "recursive" || entry.node.state === "leaf") {
-      throw new UserVisibleError("That type cannot be expanded.");
-    }
-    if (entry.node.state === "expanded") {
-      this.collapseEntry(entry);
-      return;
-    }
-    await this.expandEntry(entry);
-  }
-
-  public async expandFrontier(): Promise<void> {
-    const frontier = [...this.registry.values()].filter(
-      (entry) => entry.node.state === "collapsed" && this.isVisible(entry.node),
-    );
-    const expanded: RegistryEntry[] = [];
-    try {
-      for (const entry of frontier) {
-        await this.expandEntry(entry, false);
-        expanded.push(entry);
-      }
-      this.assertWithinLimits();
-    } catch (error) {
-      for (const entry of expanded) {
-        this.collapseEntry(entry);
-      }
-      throw error;
-    }
-  }
-
-  public collapseAll(): void {
-    for (const entry of this.registry.values()) {
+  public toggle(viewNodeId: string): Promise<void> {
+    return this.enqueue(async () => {
+      const entry = this.getEntry(viewNodeId);
       if (entry.node.state === "expanded") {
         this.collapseEntry(entry);
+      } else {
+        await this.expandEntry(entry);
       }
-    }
+    });
+  }
+
+  public expandFrontier(): Promise<void> {
+    return this.enqueue(async () => {
+      const frontier = [...this.registry.values()].filter(
+        (entry) => entry.node.state === "collapsed" && this.isVisible(entry.node),
+      );
+      const expanded: RegistryEntry[] = [];
+      try {
+        for (const entry of frontier) {
+          await this.expandEntry(entry);
+          expanded.push(entry);
+        }
+      } catch (error) {
+        for (const entry of expanded) this.collapseEntry(entry);
+        throw error;
+      }
+    });
+  }
+
+  public collapseAll(): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.root === undefined || this.rootType === undefined) return;
+      const previousRoot = this.root;
+      const previousRegistry = new Map(this.registry);
+      try {
+        const next = await this.createRoot(this.rootType);
+        Object.assign(previousRoot, next);
+        this.root = previousRoot;
+        const entry = this.registry.get(next.viewNodeId);
+        if (entry !== undefined) this.registry.set(next.viewNodeId, { ...entry, node: previousRoot });
+      } catch (error) {
+        this.registry.clear();
+        for (const [id, entry] of previousRegistry) this.registry.set(id, entry);
+        this.root = previousRoot;
+        throw error;
+      }
+    });
   }
 
   public clear(): void {
     this.registry.clear();
     this.root = undefined;
+    this.rootType = undefined;
   }
 
-  private async expandEntry(entry: RegistryEntry, checkLimits = true): Promise<void> {
-    if (entry.ancestors.includes(entry.type.id)) {
-      entry.node.state = "recursive";
-      return;
-    }
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const result = this.pending.then(operation);
+    this.pending = result.catch(() => undefined);
+    return result;
+  }
+
+  private async expandEntry(entry: RegistryEntry, initial = false): Promise<void> {
     const beforeIds = new Set(this.registry.keys());
     try {
-      const materialized = await this.materialize(entry.type, [...entry.ancestors, entry.type.id], false);
+      const materialized = await entry.load();
       entry.node.state = "expanded";
       entry.node.layout = materialized.layout;
       entry.node.children = materialized.children;
-      if (materialized.note !== undefined) {
-        Object.assign(entry.node, { note: materialized.note });
+      if (materialized.expressionText !== undefined) entry.node.expressionText = materialized.expressionText;
+      // Keep the complete immediate root union shape visible on first focus.
+      if (initial && (entry.node.layout === "union" || entry.node.layout === "intersection")) {
+        for (const edge of materialized.children) {
+          if (edge.node.state === "collapsed") {
+            const child = this.getEntry(edge.node.viewNodeId);
+            const shape = await (child.loadBoundary ?? child.load)();
+            if (shape.layout === "object" || shape.layout === "details") {
+              child.node.state = "expanded";
+              child.node.layout = shape.layout;
+              child.node.children = shape.children;
+              if (shape.expressionText !== undefined) child.node.expressionText = shape.expressionText;
+            } else {
+              this.collectIds(shape.children).forEach((id) => this.registry.delete(id));
+            }
+          }
+        }
       }
-      if (checkLimits) {
-        this.assertWithinLimits();
-      }
+      this.assertWithinLimits();
     } catch (error) {
       entry.node.state = "collapsed";
       entry.node.layout = "atom";
       delete entry.node.children;
+      delete entry.node.expressionText;
       for (const id of this.registry.keys()) {
-        if (!beforeIds.has(id)) {
-          this.registry.delete(id);
-        }
+        if (!beforeIds.has(id)) this.registry.delete(id);
       }
       throw error;
     }
   }
 
   private collapseEntry(entry: RegistryEntry): void {
-    const descendantIds = new Set<string>();
-    this.collectIds(entry.node.children, descendantIds);
-    for (const id of descendantIds) {
-      this.registry.delete(id);
-    }
+    for (const id of this.collectIds(entry.node.children)) this.registry.delete(id);
     entry.node.state = "collapsed";
     entry.node.layout = "atom";
     delete entry.node.children;
+    delete entry.node.expressionText;
   }
 
-  private async materialize(
-    type: Type,
-    ancestors: readonly number[],
-    preservePrintedMembers: boolean,
-  ): Promise<Materialized> {
+  private async materialize(type: Type, ancestors: readonly number[]): Promise<Materialized> {
     if (type.isUnionType() || type.isIntersectionType()) {
-      const memberTypes = await type.getTypes();
-      const children: TypeRenderEdge[] = [];
-      for (const member of memberTypes) {
-        if ((member.isObjectType() || member.isIntersectionType()) && !ancestors.includes(member.id)) {
-          children.push({ node: await this.createBoundaryObject(member, ancestors, preservePrintedMembers) });
-        } else {
-          children.push({ node: await this.createChild(member, ancestors) });
-        }
-      }
       return {
         layout: type.isUnionType() ? "union" : "intersection",
-        children,
+        children: await this.createChildren(await type.getTypes(), ancestors),
       };
     }
-
     if (await this.checker.isTupleType(type)) {
-      const arguments_ = type.isTypeReference()
-        ? await this.checker.getTypeArguments(type)
-        : [];
-      return {
-        layout: "tuple",
-        children: await this.createUnlabelledChildren(arguments_, ancestors),
-      };
+      const arguments_ = type.isTypeReference() ? await this.checker.getTypeArguments(type) : [];
+      return { layout: "tuple", children: await this.createChildren(arguments_, ancestors), expressionText: await this.print(type) };
     }
-
     if (await this.checker.isArrayType(type)) {
-      const arguments_ = type.isTypeReference()
-        ? await this.checker.getTypeArguments(type)
-        : [];
-      return {
-        layout: "array",
-        children: await this.createUnlabelledChildren(arguments_.slice(0, 1), ancestors),
-      };
+      const arguments_ = type.isTypeReference() ? await this.checker.getTypeArguments(type) : [];
+      return { layout: "array", children: await this.createChildren(arguments_.slice(0, 1), ancestors) };
     }
-
-    if (type.isObjectType()) {
-      return this.materializeObject(type, ancestors);
-    }
-
-    return { layout: "atom", children: [] };
-  }
-
-  private async createBoundaryObject(
-    type: Type,
-    ancestors: readonly number[],
-    preservePrintedShape: boolean,
-  ): Promise<TypeRenderNode> {
-    const printed = await this.print(type);
-    const properties = await this.checker.getPropertiesOfType(type);
-    if (properties.length === 0) {
-      return { viewNodeId: "", text: printed, state: "leaf", layout: "atom" };
-    }
-
-    const alias = await type.getAliasSymbol();
-    const symbol = alias ?? (await type.getSymbol());
-    const namedDisplay = alias === undefined ? printed : await this.aliasDisplay(type, alias.name);
-    const isNamed = alias !== undefined || (symbol !== undefined && !printed.trimStart().startsWith("{"));
-    if (preservePrintedShape && !isNamed && (printed.trimStart().startsWith("{") || type.isIntersectionType())) {
-      return {
-        viewNodeId: "",
-        text: printed,
-        state: "leaf",
-        layout: "atom",
-      };
-    }
-    if (isNamed && (await this.hasNonPropertyShape(type))) {
-      return {
-        viewNodeId: "",
-        text: namedDisplay,
-        state: "leaf",
-        layout: "atom",
-        note: "This named member has call, construct, or index signatures; the MVP cannot safely expand it as properties.",
-      };
-    }
-
-    const edges = await this.createPropertyEdges(
-      type,
-      [...ancestors, type.id],
-      isNamed ? namedDisplay : undefined,
-    );
-    return {
-      viewNodeId: "",
-      text: isNamed ? namedDisplay : printed,
-      state: "expanded",
-      layout: "object",
-      children: edges,
-      ...(isNamed ? { provenance: namedDisplay } : {}),
-    };
+    if (type.isObjectType()) return this.materializeObject(type, ancestors);
+    return { layout: "details", children: await this.typeDetails(type, ancestors), expressionText: await this.print(type) };
   }
 
   private async materializeObject(type: Type, ancestors: readonly number[]): Promise<Materialized> {
-    const properties = await this.checker.getPropertiesOfType(type);
-    if (properties.length === 0) {
-      return { layout: "atom", children: [] };
-    }
-    if (await this.hasNonPropertyShape(type)) {
-      return {
-        layout: "atom",
-        children: [],
-        note: "This type has call, construct, or index signatures that are not expanded by this MVP.",
-      };
-    }
-    return {
-      layout: "object",
-      children: await this.createPropertyEdges(type, ancestors),
-    };
-  }
-
-  private async createPropertyEdges(
-    owner: Type,
-    ancestors: readonly number[],
-    indexedOwnerText?: string,
-  ): Promise<readonly TypeRenderEdge[]> {
-    const properties = await this.checker.getPropertiesOfType(owner);
-    const edges: TypeRenderEdge[] = [];
-    for (const property of properties) {
+    const children: TypeRenderEdge[] = [];
+    for (const property of await this.checker.getPropertiesOfType(type)) {
       const propertyType = await this.checker.getTypeOfSymbol(property);
-      const propertyName = quotePropertyName(property.name);
-      if (propertyType === undefined) {
-        edges.push({
-          label: propertyName,
-          optional: Boolean(property.flags & SymbolFlags.Optional),
-          node: { viewNodeId: "", text: "unknown", state: "leaf", layout: "atom" },
-        });
-        continue;
-      }
-      const textOverride = indexedOwnerText === undefined
-        ? undefined
-        : `${indexedOwnerText}[${JSON.stringify(property.name)}]`;
-      edges.push({
-        label: propertyName,
+      children.push({
+        label: quotePropertyName(property.name),
         optional: Boolean(property.flags & SymbolFlags.Optional),
-        ...(indexedOwnerText !== undefined && property.name === "data_type"
-          ? { annotation: await this.print(propertyType) }
-          : {}),
-        node: await this.createChild(propertyType, ancestors, textOverride),
+        node: propertyType === undefined ? this.leaf("unknown") : await this.createChild(propertyType, ancestors),
       });
     }
-    return edges;
+    let hasSignatures = false;
+    for (const kind of [SignatureKind.Call, SignatureKind.Construct]) {
+      const signatures = await this.checker.getSignaturesOfType(type, kind);
+      hasSignatures ||= signatures.length > 0;
+      for (const [index, signature] of signatures.entries()) {
+        const label = `${kind === SignatureKind.Call ? "call" : "new"}${signatures.length > 1 ? ` ${index + 1}` : ""}`;
+        const node = this.register(label, () => this.materializeSignature(signature, ancestors));
+        children.push({ label, node });
+      }
+    }
+    const indexes = await this.checker.getIndexInfosOfType(type);
+    hasSignatures ||= indexes.length > 0;
+    for (const index of indexes) {
+      children.push({
+        label: `${index.isReadonly ? "readonly " : ""}[key: ${await this.print(index.keyType)}]`,
+        node: await this.createChild(index.valueType, ancestors),
+      });
+    }
+    // Preserve the compiler's callable/indexed syntax in copied output. The tree
+    // still exposes each signature, parameter, return, and indexed value type.
+    return { layout: hasSignatures ? "details" : "object", children,
+      ...(hasSignatures ? { expressionText: await this.print(type) } : {}) };
   }
 
-  private async createUnlabelledChildren(
-    types: readonly Type[],
-    ancestors: readonly number[],
-  ): Promise<readonly TypeRenderEdge[]> {
-    return Promise.all(types.map(async (type) => ({ node: await this.createChild(type, ancestors) })));
+  private async materializeSignature(signature: Signature, ancestors: readonly number[]): Promise<Materialized> {
+    const children: TypeRenderEdge[] = [];
+    for (const parameter of await signature.getTypeParameters()) {
+      children.push({ label: "type parameter", node: await this.createChild(parameter, ancestors) });
+    }
+    const thisParameter = await signature.getThisParameter();
+    const parameters = [...(thisParameter === undefined ? [] : [thisParameter]), ...await signature.getParameters()];
+    for (const [index, parameter] of parameters.entries()) {
+      const type = await this.checker.getTypeOfSymbol(parameter);
+      children.push({
+        label: `${signature.hasRestParameter && index === parameters.length - 1 ? "..." : ""}${parameter.name}`,
+        optional: Boolean(parameter.flags & SymbolFlags.Optional),
+        node: type === undefined ? this.leaf("unknown") : await this.createChild(type, ancestors),
+      });
+    }
+    const returnType = await this.checker.getReturnTypeOfSignature(signature);
+    if (returnType !== undefined) children.push({ label: "return", node: await this.createChild(returnType, ancestors) });
+    const predicate = await this.checker.getTypePredicateOfSignature(signature);
+    if (predicate?.type !== undefined) children.push({ label: "predicate", node: await this.createChild(predicate.type, ancestors) });
+    return { layout: "details", children };
   }
 
-  private async createChild(
-    type: Type,
-    ancestors: readonly number[],
-    textOverride?: string,
-  ): Promise<TypeRenderNode> {
-    const text = textOverride ?? (await this.collapsedDisplay(type));
-    if (ancestors.includes(type.id)) {
-      return { viewNodeId: "", text, state: "recursive", layout: "atom" };
+  private async typeDetails(type: Type, ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
+    const values: Array<readonly [string, Type]> = [];
+    if (type.isTypeParameter()) {
+      const constraint = await this.checker.getConstraintOfTypeParameter(type);
+      if (constraint !== undefined) values.push(["constraint", constraint]);
+    } else if (type.isIndexedAccessType()) {
+      values.push(["object", await type.getObjectType()], ["index", await type.getIndexType()]);
+    } else if (type.isIndexType() || type.isStringMappingType()) {
+      values.push(["target", await type.getTarget()]);
+    } else if (type.isConditionalType()) {
+      values.push(["check", await type.getCheckType()], ["extends", await type.getExtendsType()],
+        ["true", await type.getTrueType()], ["false", await type.getFalseType()]);
+    } else if (type.isSubstitutionType()) {
+      values.push(["base", await type.getBaseType()], ["constraint", await type.getConstraint()]);
+    } else if (type.isTemplateLiteralType()) {
+      (await type.getTypes()).forEach((span, index) => values.push([`span ${index + 1}`, span]));
     }
-    if (!(await this.isExpandable(type))) {
-      return { viewNodeId: "", text, state: "leaf", layout: "atom" };
+    const children: TypeRenderEdge[] = [];
+    for (const [label, child] of values) children.push({ label, node: await this.createChild(child, ancestors) });
+    return children;
+  }
+
+  private async createChildren(types: readonly Type[], ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
+    const children: TypeRenderEdge[] = [];
+    for (const type of types) children.push({ node: await this.createChild(type, ancestors) });
+    return children;
+  }
+
+  private async createChild(type: Type, ancestors: readonly number[]): Promise<TypeRenderNode> {
+    const text = await this.collapsedDisplay(type);
+    if (ancestors.includes(type.id)) return { ...this.leaf(text), state: "recursive" };
+    if (!(await this.isExpandable(type))) return this.leaf(await this.print(type));
+    const branchAncestors = [...ancestors, type.id];
+    const typeKind: NodeLayout = type.isUnionType() ? "union" : type.isIntersectionType() ? "intersection"
+      : await this.checker.isTupleType(type) ? "tuple" : await this.checker.isArrayType(type) ? "array"
+      : type.isObjectType() ? "object" : "details";
+    const node = this.register(text, () => this.materialize(type, branchAncestors), typeKind);
+    if (type.isObjectType() || type.isIntersectionType()) {
+      const entry = this.getEntry(node.viewNodeId);
+      this.registry.set(node.viewNodeId, {
+        ...entry,
+        loadBoundary: async () => await this.checker.isArrayType(type) || await this.checker.isTupleType(type)
+          ? this.materialize(type, branchAncestors)
+          : this.materializeObject(type, branchAncestors),
+      });
     }
-    const viewNodeId = `${this.generation}:${this.nextNodeId++}`;
-    const node: TypeRenderNode = {
-      viewNodeId,
-      text,
-      state: "collapsed",
-      layout: "atom",
-    };
-    this.registry.set(viewNodeId, {
-      generation: this.generation,
-      type,
-      ancestors,
-      node,
-    });
     return node;
   }
 
+  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout = "details"): TypeRenderNode {
+    const node: TypeRenderNode = { viewNodeId: this.allocateId(), text, typeKind, state: "collapsed", layout: "atom" };
+    this.registry.set(node.viewNodeId, { node, load });
+    return node;
+  }
+
+  private leaf(text: string): TypeRenderNode {
+    return { viewNodeId: this.allocateId(), text, state: "leaf", layout: "atom" };
+  }
+
+  private allocateId(): string {
+    return `${this.generation}:${this.nextNodeId++}`;
+  }
+
   private async isExpandable(type: Type): Promise<boolean> {
-    if (type.isUnionType() || type.isIntersectionType()) {
-      return true;
-    }
+    if (type.isUnionType() || type.isIntersectionType() || type.isIndexedAccessType() ||
+      type.isIndexType() || type.isConditionalType() || type.isSubstitutionType() ||
+      type.isTemplateLiteralType() || type.isStringMappingType()) return true;
+    if (type.isTypeParameter()) return (await this.checker.getConstraintOfTypeParameter(type)) !== undefined;
+    if (!type.isObjectType()) return false;
     if (await this.checker.isArrayType(type) || await this.checker.isTupleType(type)) {
-      if (!type.isTypeReference()) {
-        return false;
-      }
-      const arguments_ = await this.checker.getTypeArguments(type);
-      for (const argument of arguments_) {
-        if (await this.hasMeaningfulStructure(argument, new Set([type.id]))) {
-          return true;
-        }
-      }
-      return false;
+      return type.isTypeReference() && (await this.checker.getTypeArguments(type)).length > 0;
     }
-    if (!type.isObjectType()) {
-      return false;
-    }
-    return (await this.checker.getPropertiesOfType(type)).length > 0;
-  }
-
-  private async hasMeaningfulStructure(type: Type, seen: Set<number>): Promise<boolean> {
-    if (seen.has(type.id)) {
-      return true;
-    }
-    if (type.isUnionType() || type.isIntersectionType()) {
-      return true;
-    }
-    if (await this.checker.isArrayType(type) || await this.checker.isTupleType(type)) {
-      if (!type.isTypeReference()) {
-        return false;
-      }
-      seen.add(type.id);
-      const arguments_ = await this.checker.getTypeArguments(type);
-      for (const argument of arguments_) {
-        if (await this.hasMeaningfulStructure(argument, seen)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    return type.isObjectType() && (await this.checker.getPropertiesOfType(type)).length > 0;
-  }
-
-  private async hasNonPropertyShape(type: Type): Promise<boolean> {
-    const [calls, constructs, indexes] = await Promise.all([
+    const [properties, calls, constructs, indexes] = await Promise.all([
+      this.checker.getPropertiesOfType(type),
       this.checker.getSignaturesOfType(type, SignatureKind.Call),
       this.checker.getSignaturesOfType(type, SignatureKind.Construct),
       this.checker.getIndexInfosOfType(type),
     ]);
-    return calls.length > 0 || constructs.length > 0 || indexes.length > 0;
+    return properties.length + calls.length + constructs.length + indexes.length > 0;
   }
 
   private async print(type: Type): Promise<string> {
@@ -397,70 +325,54 @@ export class TypeGraph {
 
   private async collapsedDisplay(type: Type): Promise<string> {
     const alias = await type.getAliasSymbol();
-    return alias === undefined ? this.print(type) : this.aliasDisplay(type, alias.name);
-  }
-
-  private async aliasDisplay(type: Type, name: string): Promise<string> {
+    if (alias === undefined) return this.print(type);
     const arguments_ = await type.getAliasTypeArguments();
-    if (arguments_.length === 0) {
-      return name;
-    }
-    const argumentText = await Promise.all(arguments_.map(async (argument) => this.collapsedDisplay(argument)));
-    return `${name}<${argumentText.join(", ")}>`;
+    const argumentText = await Promise.all(arguments_.map((argument) => this.print(argument)));
+    return arguments_.length === 0 ? alias.name : `${alias.name}<${argumentText.join(", ")}>`;
   }
 
   private getEntry(viewNodeId: string): RegistryEntry {
     const entry = this.registry.get(viewNodeId);
-    if (entry === undefined || entry.generation !== this.generation) {
-      throw new UserVisibleError("This expansion request is obsolete. Refresh the type and try again.");
-    }
+    if (entry === undefined) throw new UserVisibleError("This expansion request is obsolete. Refresh the type and try again.");
     return entry;
   }
 
   private isVisible(target: TypeRenderNode): boolean {
-    if (this.root === undefined) {
-      return false;
-    }
-    return containsVisibleNode(this.root, target);
+    return this.root !== undefined && containsVisibleNode(this.root, target);
   }
 
-  private collectIds(edges: readonly TypeRenderEdge[] | undefined, result: Set<string>): void {
+  private collectIds(edges: readonly TypeRenderEdge[] | undefined): string[] {
+    const ids: string[] = [];
     for (const edge of edges ?? []) {
-      if (edge.node.viewNodeId.length > 0) {
-        result.add(edge.node.viewNodeId);
-      }
-      this.collectIds(edge.node.children, result);
+      ids.push(edge.node.viewNodeId, ...this.collectIds(edge.node.children));
     }
+    return ids;
   }
 
   private assertWithinLimits(): void {
-    if (this.registry.size > MAX_NODES) {
-      throw new UserVisibleError("Expansion would exceed the 5,000-node safety limit. The previous view was kept.");
-    }
-    if (this.root !== undefined && estimateTextSize(this.root) > MAX_OUTPUT) {
-      throw new UserVisibleError("Expansion would exceed the 2 MB output safety limit. The previous view was kept.");
-    }
+    if (this.root === undefined) return;
+    const { nodes, size } = measureTree(this.root);
+    if (nodes > MAX_NODES) throw new UserVisibleError("Expansion would exceed the 5,000-node safety limit. The previous view was kept.");
+    if (size > MAX_OUTPUT) throw new UserVisibleError("Expansion would exceed the 2 MB output safety limit. The previous view was kept.");
   }
 }
 
 function containsVisibleNode(current: TypeRenderNode, target: TypeRenderNode): boolean {
-  if (current === target) {
-    return true;
-  }
-  if (current.state !== "expanded") {
-    return false;
-  }
-  return (current.children ?? []).some((edge) => containsVisibleNode(edge.node, target));
+  return current === target || (current.state === "expanded" &&
+    (current.children ?? []).some((edge) => containsVisibleNode(edge.node, target)));
 }
 
-function estimateTextSize(node: TypeRenderNode): number {
-  let size = node.text.length + (node.provenance?.length ?? 0) + (node.note?.length ?? 0);
+function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
+  let nodes = 1;
+  let size = node.text.length + (node.expressionText?.length ?? 0);
   if (node.state === "expanded") {
     for (const edge of node.children ?? []) {
-      size += (edge.label?.length ?? 0) + estimateTextSize(edge.node);
+      const child = measureTree(edge.node);
+      nodes += child.nodes;
+      size += (edge.label?.length ?? 0) + child.size;
     }
   }
-  return size;
+  return { nodes, size };
 }
 
 export function quotePropertyName(name: string): string {

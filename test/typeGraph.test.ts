@@ -5,6 +5,8 @@ import {
   type Checker,
   type Symbol as AsyncSymbol,
   type Type,
+  type Signature,
+  type IndexInfo,
 } from "typescript/unstable/async";
 import type { Node } from "typescript/unstable/ast";
 import { TypeGraph, quotePropertyName } from "../src/native/typeGraph";
@@ -27,7 +29,10 @@ interface FakeModel {
   readonly members: Type[];
   readonly arguments: Type[];
   readonly aliasArguments: Type[];
-  readonly nonPropertyShape: boolean;
+  readonly calls: Signature[];
+  readonly constructs: Signature[];
+  readonly indexes: IndexInfo[];
+  constraint?: Type;
 }
 
 function createHarness() {
@@ -50,7 +55,9 @@ function createHarness() {
       members: [],
       arguments: [],
       aliasArguments: [],
-      nonPropertyShape: options.nonPropertyShape ?? false,
+      calls: [],
+      constructs: [],
+      indexes: [],
     };
     const fake = {
       id,
@@ -78,7 +85,7 @@ function createHarness() {
       isSubstitutionType: () => false,
       isTemplateLiteralType: () => false,
       isStringMappingType: () => false,
-      isTypeParameter: () => false,
+      isTypeParameter: () => model.constraint !== undefined,
       getTypes: async () => model.members,
       getTarget: async () => fake,
     } as unknown as Type;
@@ -125,11 +132,30 @@ function createHarness() {
     isArrayType: async (value: Type) => model(value).kind === "array",
     isTupleType: async (value: Type) => model(value).kind === "tuple",
     getTypeArguments: async (value: Type) => model(value).arguments,
-    getSignaturesOfType: async (value: Type, _kind: SignatureKind) => model(value).nonPropertyShape ? [{}] : [],
-    getIndexInfosOfType: async () => [],
+    getSignaturesOfType: async (value: Type, kind: SignatureKind) => kind === SignatureKind.Call ? model(value).calls : model(value).constructs,
+    getIndexInfosOfType: async (value: Type) => model(value).indexes,
+    getConstraintOfTypeParameter: async (value: Type) => model(value).constraint,
+    getReturnTypeOfSignature: async (signature: Signature) => signatureReturns.get(signature),
+    getTypePredicateOfSignature: async () => undefined,
   } as unknown as Checker;
 
-  return { checker, type, property, members, arguments_, aliasArguments };
+  const signatureReturns = new Map<Signature, Type>();
+  function signature(owner: Type, kind: SignatureKind, parameters: Array<[string, Type]>, returns: Type): void {
+    const parameterOwner = type("parameters", "object");
+    for (const [name, value] of parameters) property(parameterOwner, name, value);
+    const signature = {
+      getTypeParameters: async () => [],
+      getThisParameter: async () => undefined,
+      getParameters: async () => model(parameterOwner).properties.map((entry) => entry.symbol),
+      hasRestParameter: false,
+    } as unknown as Signature;
+    signatureReturns.set(signature, returns);
+    (kind === SignatureKind.Call ? model(owner).calls : model(owner).constructs).push(signature);
+  }
+  function index(owner: Type, keyType: Type, valueType: Type): void {
+    model(owner).indexes.push({ keyType, valueType, isReadonly: false });
+  }
+  return { checker, type, property, members, arguments_, aliasArguments, signature, index, model };
 }
 
 const enclosing = {} as Node;
@@ -152,7 +178,8 @@ describe("TypeGraph", () => {
     expect(text).toContain('kind: "a"');
     expect(text).toContain("value: string");
     expect(text).toContain("count?: number");
-    expect(text.match(/^\|/gm)).toHaveLength(2);
+    expect(root.children).toHaveLength(2);
+    expect(root.children!.every((edge) => edge.node.state === "expanded")).toBe(true);
   });
 
   it("enumerates root intersections member by member", async () => {
@@ -165,12 +192,13 @@ describe("TypeGraph", () => {
     h.members(rootType, left, right);
     const root = await new TypeGraph(h.checker, enclosing, 8).createRoot(rootType);
     const text = renderNode(root, 0);
-    expect(text).toContain("& {");
+    expect(root.layout).toBe("intersection");
+    expect(root.children).toHaveLength(2);
     expect(text).toContain("left: string");
     expect(text).toContain("right: number");
   });
 
-  it("uses indexed accesses for named top-level members and quotes property names", async () => {
+  it("exposes the actual types of named top-level properties and quotes their names", async () => {
     const h = createHarness();
     const named = h.type("Named<string>", "object", { named: true });
     h.property(named, "normal", h.type("string"));
@@ -179,9 +207,9 @@ describe("TypeGraph", () => {
     h.members(rootType, named);
     const root = await new TypeGraph(h.checker, enclosing, 1).createRoot(rootType);
     const text = renderNode(root, 0);
-    expect(text).toContain("// Named<string>");
-    expect(text).toContain('normal: Named<string>["normal"]');
-    expect(text).toContain('"not-valid"?: Named<string>["not-valid"]');
+    expect(text).toContain("Named<string>");
+    expect(text).toContain("normal: string");
+    expect(text).toContain('"not-valid"?: number');
     expect(quotePropertyName("alpha_$1")).toBe("alpha_$1");
     expect(quotePropertyName("with space")).toBe('"with space"');
   });
@@ -221,7 +249,7 @@ describe("TypeGraph", () => {
     await graph.expandFrontier();
     expect(root.children!.map((edge) => edge.node.state)).toEqual(["expanded", "expanded"]);
     expect(root.children![0]!.node.children![0]!.node.state).toBe("collapsed");
-    graph.collapseAll();
+    await graph.collapseAll();
     expect(root.children!.map((edge) => edge.node.state)).toEqual(["collapsed", "collapsed"]);
     await expect(graph.toggle("4:9999")).rejects.toThrow("obsolete");
   });
@@ -258,26 +286,125 @@ describe("TypeGraph", () => {
     expect(root.children![0]!.node.text).toBe("Box<string>");
   });
 
-  it("does not offer disclosure controls for arrays of primitive leaves", async () => {
+  it("expands primitive arrays and tuples down to their leaves", async () => {
     const h = createHarness();
-    const primitiveArray = h.type("string[]", "array");
-    h.arguments_(primitiveArray, h.type("string"));
+    const array = h.type("string[]", "array");
+    h.arguments_(array, h.type("string"));
+    const tuple = h.type("readonly [string, number?]", "tuple");
+    h.arguments_(tuple, h.type("string"), h.type("number"));
     const rootType = h.type("Root", "object");
-    h.property(rootType, "values", primitiveArray);
-    const root = await new TypeGraph(h.checker, enclosing, 10).createRoot(rootType);
-    expect(root.children![0]!.node.state).toBe("leaf");
-    expect(root.children![0]!.node.viewNodeId).toBe("");
+    h.property(rootType, "values", array);
+    h.property(rootType, "pair", tuple);
+    const graph = new TypeGraph(h.checker, enclosing, 10);
+    const root = await graph.createRoot(rootType);
+    await graph.expandFrontier();
+    expect(root.children![0]!.node.children![0]!.node).toMatchObject({ text: "string", state: "leaf" });
+    expect(root.children![1]!.node.children!.map((edge) => edge.node.state)).toEqual(["leaf", "leaf"]);
+    expect(renderNode(root, 0)).toContain("readonly [string, number?]");
   });
 
-  it("keeps unsupported named callable shapes visible with an explicit note", async () => {
+  it("lets anonymous union members collapse and expand their nested properties", async () => {
     const h = createHarness();
-    const callable = h.type("CallableMember", "object", { named: true, nonPropertyShape: true });
-    h.property(callable, "label", h.type("string"));
-    const rootType = h.type("Root", "union");
-    h.members(rootType, callable);
-    const root = await new TypeGraph(h.checker, enclosing, 6).createRoot(rootType);
-    const text = renderNode(root, 0);
-    expect(text).toContain("CallableMember");
-    expect(text).toContain("cannot safely expand");
+    const member = h.type("{ nested: { value: string } }", "object");
+    const nested = h.type("{ value: string }", "object");
+    h.property(nested, "value", h.type("string"));
+    h.property(member, "nested", nested);
+    const union = h.type("Union", "union");
+    h.members(union, member, h.type("null"));
+    const graph = new TypeGraph(h.checker, enclosing, 11);
+    const root = await graph.createRoot(union);
+    const branch = root.children![0]!.node;
+    const childId = branch.children![0]!.node.viewNodeId;
+    await graph.toggle(childId);
+    expect(branch.children![0]!.node.children![0]!.node.text).toBe("string");
+    await graph.toggle(branch.viewNodeId);
+    expect(branch.state).toBe("collapsed");
+    await expect(graph.toggle(childId)).rejects.toThrow("obsolete");
+    await graph.toggle(branch.viewNodeId);
+    expect(branch.children![0]!.node.state).toBe("collapsed");
+  });
+
+  it("exposes callable parameters, returns, constructors, and index values alongside properties", async () => {
+    const h = createHarness();
+    const string = h.type("string");
+    const nested = h.type("{ value: string }", "object");
+    h.property(nested, "value", string);
+    const callable = h.type("{ (input: string): { value: string }; new (): { value: string }; [key: string]: unknown; label: string }", "object");
+    h.property(callable, "label", string);
+    h.signature(callable, SignatureKind.Call, [["input", string]], nested);
+    h.signature(callable, SignatureKind.Construct, [], nested);
+    h.index(callable, string, nested);
+    const graph = new TypeGraph(h.checker, enclosing, 12);
+    const root = await graph.createRoot(callable);
+    expect(root.children!.map((edge) => edge.label)).toEqual(["label", "call", "new", "[key: string]"]);
+    await graph.toggle(root.children![1]!.node.viewNodeId);
+    const signature = root.children![1]!.node;
+    expect(signature.children!.map((edge) => edge.label)).toEqual(["input", "return"]);
+    expect(signature.children![0]!.node).toMatchObject({ text: "string", state: "leaf" });
+    await graph.toggle(signature.children![1]!.node.viewNodeId);
+    expect(signature.children![1]!.node.children![0]!.node.text).toBe("string");
+    await graph.toggle(root.children![3]!.node.viewNodeId);
+    expect(root.children![3]!.node.children![0]!.node.text).toBe("string");
+    expect(renderNode(root, 0)).toContain(h.model(callable).text);
+  });
+
+  it("expands constrained type parameters", async () => {
+    const h = createHarness();
+    const parameter = h.type("T");
+    const constraint = h.type("{ id: string }", "object");
+    h.property(constraint, "id", h.type("string"));
+    h.model(parameter).constraint = constraint;
+    const graph = new TypeGraph(h.checker, enclosing, 13);
+    const root = await graph.createRoot(parameter);
+    expect(root.children![0]!.label).toBe("constraint");
+    await graph.toggle(root.children![0]!.node.viewNodeId);
+    expect(root.children![0]!.node.children![0]!.node.text).toBe("string");
+  });
+
+  it("supports root disclosure and restores the initial shape without reusing obsolete IDs", async () => {
+    const h = createHarness();
+    const type = h.type("{ value: string }", "object");
+    h.property(type, "value", h.type("string"));
+    const graph = new TypeGraph(h.checker, enclosing, 14);
+    const root = await graph.createRoot(type);
+    const initial = renderNode(root, 0);
+    const oldId = root.viewNodeId;
+    await graph.toggle(oldId);
+    expect(root.state).toBe("collapsed");
+    await graph.collapseAll();
+    expect(root.state).toBe("expanded");
+    expect(renderNode(root, 0)).toBe(initial);
+    expect(root.viewNodeId).not.toBe(oldId);
+    await expect(graph.toggle(oldId)).rejects.toThrow("obsolete");
+  });
+
+  it("serializes rapid toggles so two clicks do not leave duplicate descendants", async () => {
+    const h = createHarness();
+    const nested = h.type("Nested", "object");
+    h.property(nested, "value", h.type("string"));
+    const type = h.type("Root", "object");
+    h.property(type, "nested", nested);
+    const graph = new TypeGraph(h.checker, enclosing, 15);
+    const root = await graph.createRoot(type);
+    const child = root.children![0]!.node;
+    await Promise.all([graph.toggle(child.viewNodeId), graph.toggle(child.viewNodeId)]);
+    expect(child.state).toBe("collapsed");
+    expect(child.children).toBeUndefined();
+  });
+
+  it("rejects oversized leaf expansions and leaves the previous branch intact", async () => {
+    const h = createHarness();
+    const large = h.type("Large", "object");
+    for (let index = 0; index < 5000; index++) h.property(large, `value${index}`, h.type("string"));
+    const type = h.type("Root", "object");
+    h.property(type, "large", large);
+    const graph = new TypeGraph(h.checker, enclosing, 16);
+    const root = await graph.createRoot(type);
+    const child = root.children![0]!.node;
+    const before = renderNode(root, 0);
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("5,000-node");
+    expect(child.state).toBe("collapsed");
+    expect(child.children).toBeUndefined();
+    expect(renderNode(root, 0)).toBe(before);
   });
 });

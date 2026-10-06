@@ -49,3 +49,23 @@ export {
   type RecursiveNode,
   selectedVariable,
 };
+
+// Shapes used to verify that every compound branch can reach its primitive leaves.
+type TreeFixture = {
+  nested: { child: { value: string } };
+  alternatives: { name: string } | { count: number };
+  values: string[];
+  pair: readonly [name: string, count?: number];
+  lookup: Record<string, { enabled: boolean }>;
+  handler: (input: { id: string }) => { result: number };
+  factory: new (name: string) => { id: string };
+};
+
+type GenericTree<T extends { id: string }> = {
+  value: T;
+  key: keyof T;
+  indexed: T[keyof T];
+  conditional: T extends { id: string } ? { yes: string } : { no: number };
+  template: `id-${T["id"]}`;
+  mapped: Uppercase<T["id"]>;
+};

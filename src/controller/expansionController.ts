@@ -28,11 +28,8 @@ export class ExpansionController {
     await this.mutate(async (session) => session.graph.expandFrontier());
   }
 
-  public collapseAll(): void {
-    this.session?.graph.collapseAll();
-    if (this.session !== undefined) {
-      this.render();
-    }
+  public async collapseAll(): Promise<void> {
+    await this.mutate(async (session) => session.graph.collapseAll());
   }
 
   public async copy(): Promise<string | undefined> {

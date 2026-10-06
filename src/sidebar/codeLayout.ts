@@ -179,7 +179,9 @@ function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
     case "array":
       return renderArray(children, node.text, depth);
     case "tuple":
-      return renderTuple(children, depth);
+      return compilerLines(node.expressionText ?? node.text, depth * 2);
+    case "details":
+      return compilerLines(node.expressionText ?? node.text, depth * 2);
     case "atom":
       return compilerLines(node.text, depth * 2);
   }
@@ -244,25 +246,6 @@ function renderArray(children: readonly TypeRenderEdge[], fallback: string, dept
     child[0] = line(baseIndent, ...child[0].segments);
   }
   return child;
-}
-
-function renderTuple(children: readonly TypeRenderEdge[], depth: number): MutableCodeLine[] {
-  const baseIndent = depth * 2;
-  if (children.length === 0) {
-    return [line(baseIndent, text("[]"))];
-  }
-  const lines: MutableCodeLine[] = [line(baseIndent, text("["))];
-  children.forEach((edge, index) => {
-    const child = renderNode(edge.node, depth + 1);
-    const first = child.shift() ?? line(baseIndent + 2);
-    appendSegment(lines.at(-1), ...first.segments);
-    lines.push(...child);
-    if (index < children.length - 1) {
-      appendSegment(lines.at(-1), text(", "));
-    }
-  });
-  appendSegment(lines.at(-1), text("]"));
-  return lines;
 }
 
 function compilerLines(value: string, baseIndent: number): MutableCodeLine[] {

@@ -197,7 +197,7 @@ function renderObject(
   if (provenance !== undefined) {
     lines.push(line(baseIndent + 2, token(`// ${oneLine(provenance)}`, "comment")));
   }
-  for (const edge of children) {
+  for (const edge of children.filter((edge) => edge.role !== "typeArgument")) {
     const child = renderNode(edge.node, depth + 1);
     const first = child.shift() ?? line(baseIndent + 2);
     const propertySegments: CodeSegment[] = [token(edge.label ?? "value", "property")];

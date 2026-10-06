@@ -59,6 +59,7 @@ type TreeFixture = {
   lookup: Record<string, { enabled: boolean }>;
   handler: (input: { id: string }) => { result: number };
   factory: new (name: string) => { id: string };
+  phantom: Phantom<{ value: number }>;
 };
 
 type GenericTree<T extends { id: string }> = {
@@ -69,3 +70,5 @@ type GenericTree<T extends { id: string }> = {
   template: `id-${T["id"]}`;
   mapped: Uppercase<T["id"]>;
 };
+
+class Phantom<T> {}

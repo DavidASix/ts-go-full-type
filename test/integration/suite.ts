@@ -90,6 +90,15 @@ export async function run(): Promise<void> {
   await api.toggle(construct.viewNodeId);
   assert.equal(edge(construct, "name").text, "string");
 
+  const phantom = edge(tree, "phantom");
+  await api.toggle(phantom.viewNodeId);
+  const argument = edge(phantom, "type argument 1");
+  await api.toggle(argument.viewNodeId);
+  assert.equal(edge(argument, "value").text, "number");
+  assert.equal(edge(argument, "value").state, "leaf");
+  state = await waitForSuccess(api, "TreeFixture");
+  assert.doesNotMatch(state.rawText, /type argument 1:/);
+
   await focusAlias(editor, document, "GenericTree");
   state = await waitForSuccess(api, "GenericTree");
   for (const label of ["value", "key", "indexed", "conditional", "template", "mapped"]) {

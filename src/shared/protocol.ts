@@ -3,6 +3,7 @@ export type ViewNodeState = "leaf" | "collapsed" | "expanded" | "recursive";
 export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple" | "details";
 
 export interface TypeRenderEdge {
+  readonly role?: "typeArgument";
   readonly label?: string;
   readonly optional?: boolean;
   readonly annotation?: string;

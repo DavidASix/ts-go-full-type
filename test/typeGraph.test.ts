@@ -361,6 +361,26 @@ describe("TypeGraph", () => {
     expect(root.children![0]!.node.children![0]!.node.text).toBe("string");
   });
 
+  it("exposes type arguments even when a generic object has no properties", async () => {
+    const h = createHarness();
+    const payload = h.type("{ value: number }", "object");
+    h.property(payload, "value", h.type("number"));
+    const generic = h.type("Phantom<{ value: number }>", "object", { named: true, aliasName: "Phantom" });
+    h.aliasArguments(generic, payload);
+    const type = h.type("Root", "object");
+    h.property(type, "generic", generic);
+    const graph = new TypeGraph(h.checker, enclosing, 17);
+    const root = await graph.createRoot(type);
+    const child = root.children![0]!.node;
+    expect(child.state).toBe("collapsed");
+    await graph.toggle(child.viewNodeId);
+    const argument = child.children![0]!;
+    expect(argument).toMatchObject({ role: "typeArgument", label: "type argument 1" });
+    await graph.toggle(argument.node.viewNodeId);
+    expect(argument.node.children![0]!.node).toMatchObject({ text: "number", state: "leaf" });
+    expect(renderNode(root, 0)).not.toContain("type argument 1:");
+  });
+
   it("supports root disclosure and restores the initial shape without reusing obsolete IDs", async () => {
     const h = createHarness();
     const type = h.type("{ value: string }", "object");

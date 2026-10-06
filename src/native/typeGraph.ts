@@ -206,6 +206,10 @@ export class TypeGraph {
         node: await this.createChild(index.valueType, ancestors),
       });
     }
+    const arguments_ = await this.objectArguments(type);
+    for (const [index, argument] of arguments_.entries()) {
+      children.push({ role: "typeArgument", label: `type argument ${index + 1}`, node: await this.createChild(argument, ancestors) });
+    }
     // Preserve the compiler's callable/indexed syntax in copied output. The tree
     // still exposes each signature, parameter, return, and indexed value type.
     return { layout: hasSignatures ? "details" : "object", children,
@@ -316,7 +320,12 @@ export class TypeGraph {
       this.checker.getSignaturesOfType(type, SignatureKind.Construct),
       this.checker.getIndexInfosOfType(type),
     ]);
-    return properties.length + calls.length + constructs.length + indexes.length > 0;
+    return properties.length + calls.length + constructs.length + indexes.length > 0 ||
+      (await this.objectArguments(type)).length > 0;
+  }
+
+  private objectArguments(type: Type): Promise<readonly Type[]> {
+    return type.isTypeReference() ? this.checker.getTypeArguments(type) : type.getAliasTypeArguments();
   }
 
   private async print(type: Type): Promise<string> {

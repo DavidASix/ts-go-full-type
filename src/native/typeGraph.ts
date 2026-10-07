@@ -388,9 +388,13 @@ export class TypeGraph {
       (await this.query(() => this.checker.getPropertiesOfType(type))).length === 0 &&
       ((await this.query(() => this.checker.getSignaturesOfType(type, SignatureKind.Call))).length > 0 ||
         (await this.query(() => this.checker.getSignaturesOfType(type, SignatureKind.Construct))).length > 0);
-    const typeKind: NodeLayout | "function" = type.isUnionType() ? "union" : type.isIntersectionType() ? "intersection"
-      : await this.query(() => this.checker.isTupleType(type)) ? "tuple" : await this.query(() => this.checker.isArrayType(type)) ? "array"
-      : callable ? "function" : type.isObjectType() ? "object" : "details";
+    let typeKind: NodeLayout | "function" = "details";
+    if (type.isUnionType()) typeKind = "union";
+    else if (type.isIntersectionType()) typeKind = "intersection";
+    else if (await this.query(() => this.checker.isTupleType(type))) typeKind = "tuple";
+    else if (await this.query(() => this.checker.isArrayType(type))) typeKind = "array";
+    else if (callable) typeKind = "function";
+    else if (type.isObjectType()) typeKind = "object";
     const node = this.register(text, () => this.materialize(type, branchAncestors), typeKind);
     if (type.isObjectType() || type.isIntersectionType()) {
       const entry = this.getEntry(node.viewNodeId);

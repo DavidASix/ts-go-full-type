@@ -1,4 +1,4 @@
-import type { CompleteTypeResult, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
+import type { CompleteTypeResult, NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
 import { tokenizeTypeScript } from "./codeLayout";
 
 export interface TypeTreeItem {
@@ -23,10 +23,14 @@ export function buildTypeTree(result: CompleteTypeResult): TypeTreeItem {
  */
 function item(node: TypeRenderNode, label: string, path: string): TypeTreeItem {
   const kind = node.typeKind ?? node.content.layout;
-  const icon = kind === "object" ? "{}" : kind === "array" ? "[]" : kind === "tuple" ? "[·]"
-    : kind === "union" ? "∪" : kind === "intersection" ? "∩" : kind === "function" ? "ƒ"
-    : /^(number|bigint|\d)/.test(node.text) ? "#"
-    : /^(string|["'`])/.test(node.text) ? "abc" : "◇";
+  const icons: Partial<Record<NodeLayout | "function", string>> = {
+    object: "{}", array: "[]", tuple: "[·]", union: "∪", intersection: "∩", function: "ƒ",
+  };
+  let icon = icons[kind] ?? "◇";
+  if (icons[kind] === undefined) {
+    if (/^(number|bigint|\d)/.test(node.text)) icon = "#";
+    else if (/^(string|["'`])/.test(node.text)) icon = "abc";
+  }
   const iconClass = kind === "atom" ? "primitive" : kind;
   const summary = node.text === label ? kindLabel(kind) : summarize(node.text, kind);
   const children = node.content.state !== "expanded" ? [] : (node.content.children ?? []).map((edge, index) =>

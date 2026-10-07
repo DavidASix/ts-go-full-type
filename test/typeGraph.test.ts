@@ -42,7 +42,7 @@ function createHarness() {
   function type(
     text: string,
     kind: Kind = "leaf",
-    options: { named?: boolean; aliasName?: string; nonPropertyShape?: boolean } = {},
+    options: { named?: boolean; aliasName?: string; readonly?: boolean; nonPropertyShape?: boolean } = {},
   ): Type {
     const id = nextId++;
     const model: FakeModel = {
@@ -62,7 +62,7 @@ function createHarness() {
     const fake = {
       id,
       flags: 0,
-      getSymbol: async () => model.named ? ({ id: id * 100, name: text, flags: SymbolFlags.Interface } as AsyncSymbol) : undefined,
+      getSymbol: async () => model.kind === "array" ? ({ name: options.readonly ? "ReadonlyArray" : "Array" } as AsyncSymbol) : model.named ? ({ id: id * 100, name: text, flags: SymbolFlags.Interface } as AsyncSymbol) : undefined,
       getAliasSymbol: async () => model.named ? ({ id: id * 100 + 1, name: model.aliasName, flags: SymbolFlags.TypeAlias } as AsyncSymbol) : undefined,
       getAliasTypeArguments: async () => model.aliasArguments,
       getBaseTypes: async () => undefined,
@@ -275,6 +275,25 @@ describe("TypeGraph", () => {
     expect(root.content.children![0]!.node.content.children![0]!.node.text).toBe("Element");
     expect(root.content.children![1]!.node.content.layout).toBe("tuple");
     expect(root.content.children![1]!.node.content.children).toHaveLength(2);
+  });
+
+  it("preserves readonly array semantics in copied output even behind an alias", async () => {
+    const h = createHarness();
+    const immutable = h.type("readonly string[]", "array", { named: true, aliasName: "Values", readonly: true });
+    const mutable = h.type("string[]", "array");
+    h.arguments_(immutable, h.type("string"));
+    h.arguments_(mutable, h.type("string"));
+    const rootType = h.type("Root", "object");
+    h.property(rootType, "immutable", immutable);
+    h.property(rootType, "mutable", mutable);
+    const graph = new TypeGraph(h.checker, enclosing, 20);
+    const root = await graph.createRoot(rootType);
+    await graph.expandFrontier();
+    const copied = renderNode(root, 0);
+    expect(copied).toContain("ReadonlyArray<string>");
+    expect(copied).toContain("Array<string>");
+    expect(root.content.children![0]!.node.content).toMatchObject({ layout: "array", readonly: true });
+    expect(root.content.children![1]!.node.content).toMatchObject({ layout: "array", readonly: false });
   });
 
   it("retains compiler-rendered generic arguments in collapsed alias labels", async () => {

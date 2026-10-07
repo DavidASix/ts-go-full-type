@@ -21,6 +21,7 @@ interface Materialized {
   readonly layout: Exclude<NodeLayout, "atom">;
   readonly children: readonly TypeRenderEdge[];
   readonly expressionText?: string;
+  readonly readonly?: boolean;
 }
 
 type GraphNode = Omit<TypeRenderNode, "content"> & { content: NodeContent };
@@ -179,7 +180,9 @@ export class TypeGraph {
     }
     if (await this.query(() => this.checker.isArrayType(type))) {
       const arguments_ = type.isTypeReference() ? await this.query(() => this.checker.getTypeArguments(type)) : [];
-      return { layout: "array", children: await this.createChildren(arguments_.slice(0, 1), ancestors) };
+      const target = type.isTypeReference() ? await this.query(() => type.getTarget()) : type;
+      const symbol = await this.query(() => target.getSymbol());
+      return { layout: "array", children: await this.createChildren(arguments_.slice(0, 1), ancestors), readonly: symbol?.name === "ReadonlyArray" };
     }
     if (type.isObjectType()) return this.materializeObject(type, ancestors);
     return { layout: "details", children: await this.typeDetails(type, ancestors), expressionText: await this.print(type) };

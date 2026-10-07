@@ -177,7 +177,7 @@ function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
     case "intersection":
       return renderJoined(children, "&", depth);
     case "array":
-      return renderArray(children, node.text, depth);
+      return renderArray(children, node.text, depth, node.content.readonly === true);
     case "tuple":
       return compilerLines(node.content.expressionText ?? node.text, depth * 2);
     case "details":
@@ -237,13 +237,13 @@ function renderJoined(
   return lines;
 }
 
-function renderArray(children: readonly TypeRenderEdge[], fallback: string, depth: number): MutableCodeLine[] {
+function renderArray(children: readonly TypeRenderEdge[], fallback: string, depth: number, readonly: boolean): MutableCodeLine[] {
   const baseIndent = depth * 2;
   if (children.length === 0) {
     return compilerLines(fallback, baseIndent);
   }
   const child = renderNode(children[0]!.node, depth + 1);
-  child[0]?.segments.unshift(token("Array", "type"), text("<"));
+  child[0]?.segments.unshift(token(readonly ? "ReadonlyArray" : "Array", "type"), text("<"));
   appendSegment(child.at(-1), text(">"));
   if (child[0] !== undefined) {
     child[0] = line(baseIndent, ...child[0].segments);

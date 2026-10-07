@@ -13,7 +13,7 @@ export interface TypeRenderEdge {
 
 export type NodeContent =
   | { readonly state: "leaf" | "collapsed" | "recursive"; readonly layout: "atom"; readonly children?: never; readonly expressionText?: never }
-  | { readonly state: "expanded"; readonly layout: Exclude<NodeLayout, "atom">; readonly children: readonly TypeRenderEdge[]; readonly expressionText?: string };
+  | { readonly state: "expanded"; readonly layout: Exclude<NodeLayout, "atom">; readonly children: readonly TypeRenderEdge[]; readonly expressionText?: string; readonly readonly?: boolean };
 
 /** Renderers consume the graph's presentation; only TypeGraph replaces its content. */
 export interface TypeRenderNode {

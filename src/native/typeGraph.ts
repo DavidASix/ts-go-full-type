@@ -7,13 +7,13 @@ import {
   type Signature,
   type Type,
 } from "typescript/unstable/async";
-import { SyntaxKind, type Node } from "typescript/unstable/ast";
+import { isNamedTupleMember, isOptionalTypeNode, isRestTypeNode, isTupleTypeNode, SyntaxKind, type Node } from "typescript/unstable/ast";
 import { settleQueries } from "../shared/async";
 import { UserVisibleError } from "../shared/errors";
 import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode, TypeExpressionPart } from "../shared/protocol";
 import { DEFAULT_GRAPH_LIMITS, GraphBudget, type GraphLimits } from "./graphBudget";
 import { isReadonlyProperty } from "./propertyModifiers";
-import { buildTypeExpression } from "./typeExpression";
+import { buildTypeExpression, unwrap } from "./typeExpression";
 import { hasPresentationTruncation } from "./truncation";
 
 const PRINT_FLAGS = NodeBuilderFlags.NoTruncation |
@@ -191,7 +191,7 @@ export class TypeGraph {
     }
     if (await this.query(() => this.checker.isTupleType(type))) {
       const arguments_ = type.isTypeReference() ? await this.query(() => this.checker.getTypeArguments(type)) : [];
-      const children = await this.createChildren(arguments_, ancestors);
+      const children = await this.tupleChildren(type, arguments_, ancestors);
       return { layout: "tuple", children, expressionText: await this.print(type), expression: await this.expression(type, children) };
     }
     if (await this.query(() => this.checker.isArrayType(type))) {
@@ -291,6 +291,22 @@ export class TypeGraph {
     const children: TypeRenderEdge[] = [];
     for (const [label, child] of values) children.push(this.edge({ label, node: await this.createChild(child, ancestors) }));
     return children;
+  }
+
+  /** Attach tuple relationship metadata from compiler syntax to semantic elements. */
+  private async tupleChildren(type: Type, elements: readonly Type[], ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
+    const children = await this.createChildren(elements, ancestors);
+    const syntax = await this.query(() => this.checker.typeToTypeNode(type, this.enclosingDeclaration, PRINT_FLAGS));
+    const tuple = syntax === undefined ? undefined : unwrap(syntax);
+    if (tuple === undefined || !isTupleTypeNode(tuple)) return children;
+    return children.map((edge, index) => {
+      const element = tuple.elements[index];
+      if (element === undefined) return edge;
+      const named = isNamedTupleMember(element);
+      const rest = isRestTypeNode(element) || (named && element.dotDotDotToken !== undefined);
+      const optional = isOptionalTypeNode(element) || (named && element.questionToken !== undefined);
+      return this.edge({ ...edge, label: `${rest ? "..." : ""}${named ? element.name.text : `[${index}]`}`, optional });
+    });
   }
 
   private async createChildren(types: readonly Type[], ancestors: readonly number[]): Promise<TypeRenderEdge[]> {

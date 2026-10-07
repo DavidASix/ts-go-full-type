@@ -9,9 +9,10 @@ import {
   type Signature,
   type IndexInfo,
 } from "typescript/unstable/async";
-import { isIdentifier, isTupleTypeNode, isTypeReferenceNode, type Node } from "typescript/unstable/ast";
-import { createIdentifier, createTupleTypeNode, createTypeReferenceNode } from "typescript/unstable/ast/factory";
+import { SyntaxKind, isArrayTypeNode, isNamedTupleMember, isOptionalTypeNode, isRestTypeNode, isIdentifier, isTupleTypeNode, isTypeReferenceNode, type Node } from "typescript/unstable/ast";
+import { createArrayTypeNode, createNamedTupleMember, createOptionalTypeNode, createRestTypeNode, createToken, createIdentifier, createTupleTypeNode, createTypeReferenceNode } from "typescript/unstable/ast/factory";
 import { TypeGraph, quotePropertyName } from "../src/native/typeGraph";
+import { buildTypeTree } from "../src/sidebar/treeLayout";
 import { renderNode } from "../src/sidebar/renderText";
 
 type Kind = "leaf" | "object" | "union" | "intersection" | "array" | "tuple";
@@ -160,11 +161,16 @@ function createHarness() {
   function index(owner: Type, keyType: Type, valueType: Type): void {
     model(owner).indexes.push({ keyType, valueType, isReadonly: false });
   }
-  const emitter = { printNode: async (node: Node): Promise<string> => {
-    if (isTupleTypeNode(node)) return `[${node.elements.map((element) => isTypeReferenceNode(element) ? (isIdentifier(element.typeName) ? element.typeName.text : "unknown") : "unknown").join(", ")}]`;
+  function printSyntax(node: Node): string {
+    if (isNamedTupleMember(node)) return `${node.dotDotDotToken ? "..." : ""}${node.name.text}${node.questionToken ? "?" : ""}: ${printSyntax(node.type)}`;
+    if (isOptionalTypeNode(node)) return `${printSyntax(node.type)}?`;
+    if (isRestTypeNode(node)) return `...${printSyntax(node.type)}`;
+    if (isArrayTypeNode(node)) return `${printSyntax(node.elementType)}[]`;
+    if (isTupleTypeNode(node)) return `[${node.elements.map(printSyntax).join(", ")}]`;
     if (isTypeReferenceNode(node)) return isIdentifier(node.typeName) ? node.typeName.text : "unknown";
     throw new Error("Unexpected fixture syntax");
-  } };
+  }
+  const emitter = { printNode: async (node: Node) => printSyntax(node) };
   return { syntax, project: { checker, emitter } as Project, checker, type, property, members, arguments_, aliasArguments, signature, index, model };
 }
 
@@ -173,6 +179,34 @@ import { deferred } from "./support/deferred";
 const enclosing = {} as Node;
 
 describe("TypeGraph", () => {
+  it("preserves tuple labels and optional/rest relationships in visible rows", async () => {
+    const h = createHarness();
+    const tuple = h.type("[name: string, count?: number, ...items: Payload[]]", "tuple");
+    const ref = (name: string) => createTypeReferenceNode(createIdentifier(name));
+    h.arguments_(tuple, h.type("string"), h.type("number"), h.type("Payload"));
+    h.syntax.set(tuple.id, createTupleTypeNode([
+      createNamedTupleMember(undefined, createIdentifier("name"), undefined, ref("string")),
+      createNamedTupleMember(undefined, createIdentifier("count"), createToken(SyntaxKind.QuestionToken), ref("number")),
+      createNamedTupleMember(createToken(SyntaxKind.DotDotDotToken), createIdentifier("items"), undefined, createArrayTypeNode(ref("Payload"))),
+    ]));
+    const root = await new TypeGraph(h.project, enclosing, 51).createRoot(tuple);
+    const tree = buildTypeTree({ root, name: "Tuple", compilerVersion: "7.0.2", sourceUri: "file:///types.ts", project: "/tsconfig.json", generation: 51 });
+    expect(tree.children.map((child) => child.label)).toEqual(["name", "count?", "...items"]);
+  });
+
+  it("marks unlabeled optional and rest tuple positions", async () => {
+    const h = createHarness();
+    const tuple = h.type("[string?, ...number[]]", "tuple");
+    const ref = (name: string) => createTypeReferenceNode(createIdentifier(name));
+    h.arguments_(tuple, h.type("string"), h.type("number"));
+    h.syntax.set(tuple.id, createTupleTypeNode([createOptionalTypeNode(ref("string")), createRestTypeNode(createArrayTypeNode(ref("number")))]));
+    const root = await new TypeGraph(h.project, enclosing, 52).createRoot(tuple);
+    expect(root.content.children).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "[0]", optional: true }),
+      expect.objectContaining({ label: "...[1]" }),
+    ]));
+  });
+
   it("copies a tuple descendant expanded through native compiler syntax", async () => {
     const h = createHarness();
     const payload = h.type("Payload", "object", { named: true });

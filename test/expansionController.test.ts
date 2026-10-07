@@ -8,6 +8,8 @@ vi.mock("vscode", () => ({
   window: { showErrorMessage: vi.fn() },
 }));
 
+import { deferred } from "./support/deferred";
+import { UserVisibleError } from "../src/shared/errors";
 import { ExpansionController } from "../src/controller/expansionController";
 import type { ResolvedCompleteType } from "../src/native/completeTypeProvider";
 import type { TypeGraph } from "../src/native/typeGraph";
@@ -75,4 +77,38 @@ describe("ExpansionController", () => {
     expect(copied).toContain("type Alias3");
     expect(copied).not.toContain("<button");
   });
+  it("does not publish an old expansion failure after its session has been replaced", async () => {
+    let state: ViewState = { kind: "idle", message: "idle" };
+    const view = { setState: (next: ViewState) => { state = next; }, getState: () => state };
+    const controller = new ExpansionController(view);
+    const first = session(1);
+    const second = session(2);
+    const pending = deferred<void>();
+    vi.spyOn(first.graph, "toggle").mockReturnValueOnce(pending.promise);
+    await controller.replace(first.value);
+    const expanding = controller.toggle("old-node");
+    await controller.replace(second.value);
+    pending.reject(new Error("socket closed"));
+    await expanding;
+    expect(state).toMatchObject({ kind: "success", result: { name: "Alias2" } });
+    await controller.dispose();
+  });
+
+  it("keeps the current type usable after a rejected expansion and runs breadth and collapse commands", async () => {
+    let state: ViewState = { kind: "idle", message: "idle" };
+    const view = { setState: (next: ViewState) => { state = next; }, getState: () => state };
+    const controller = new ExpansionController(view);
+    const current = session(1);
+    vi.spyOn(current.graph, "toggle").mockRejectedValueOnce(new UserVisibleError("node limit"));
+    await controller.replace(current.value);
+    await controller.toggle("node");
+    expect(state).toMatchObject({ kind: "success", notice: "node limit" });
+    await controller.expandLevel();
+    expect(current.graph.expandFrontier).toHaveBeenCalledOnce();
+    await controller.collapseAll();
+    expect(current.graph.collapseAll).toHaveBeenCalledOnce();
+    expect(state).not.toHaveProperty("notice");
+    await controller.dispose();
+  });
+
 });

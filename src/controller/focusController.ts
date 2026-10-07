@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { RequestCancelledError } from "../shared/cancellation";
 import { errorMessage, UserVisibleError } from "../shared/errors";
-import { CompleteTypeProvider } from "../native/completeTypeProvider";
-import { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
-import { ExpansionController } from "./expansionController";
+import type { CompleteTypeProvider } from "../native/completeTypeProvider";
+import type { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
+import type { ExpansionController } from "./expansionController";
 import {
   isSameCachedSymbol,
   ResolutionGeneration,
@@ -20,9 +20,9 @@ export class FocusController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
-    private readonly provider: CompleteTypeProvider,
-    private readonly expansion: ExpansionController,
-    private readonly view: FullTypeViewProvider,
+    private readonly provider: Pick<CompleteTypeProvider, "resolve" | "onDidInvalidate">,
+    private readonly expansion: Pick<ExpansionController, "replace">,
+    private readonly view: Pick<FullTypeViewProvider, "visible" | "setState">,
   ) {
     this.disposables.push(
       provider.onDidInvalidate(() => this.refresh()),

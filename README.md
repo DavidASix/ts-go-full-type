@@ -44,3 +44,8 @@ FULL_TYPE_VIEWER_ACCEPTANCE_FILE=/path/to/rigc-base/src/server/datasets/virtual/
 
 The extension intentionally targets Linux x64, VS Code Insiders, and the pinned
 TypeScript 7 native preview. Other compiler/protocol versions are unsupported.
+
+`npm run check` type-checks the project and runs unit and DOM interaction tests.
+`npm run test:coverage` reports coverage for lifecycle orchestration and the webview,
+with minimum coverage enforced. Regression tests cover late handshakes, restarts,
+stale requests, snapshot disposal, hidden views, keyboard navigation, and Copy.

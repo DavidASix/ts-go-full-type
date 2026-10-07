@@ -15,5 +15,5 @@
     "rootDir": ".",
     "types": ["node", "vscode", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "esbuild.mjs"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "esbuild.mjs", "vitest.config.ts"]
 }

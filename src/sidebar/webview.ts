@@ -113,3 +113,5 @@ if (tree !== null && saved !== undefined && saved.generation === tree.dataset.ge
 }
 scrollSurface?.addEventListener("scroll", () => save(), { passive: true });
 vscode.postMessage({ type: "ready" });
+
+export {};

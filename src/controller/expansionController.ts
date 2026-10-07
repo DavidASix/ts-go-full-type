@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import { UserVisibleError, errorMessage } from "../shared/errors";
 import type { ResolvedCompleteType } from "../native/completeTypeProvider";
-import { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
+import type { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
 import { renderCompleteType } from "../sidebar/renderText";
 
 export class ExpansionController {
   private session: ResolvedCompleteType | undefined;
 
-  public constructor(private readonly view: FullTypeViewProvider) {}
+  public constructor(private readonly view: Pick<FullTypeViewProvider, "setState" | "getState">) {}
 
   public async replace(session: ResolvedCompleteType | undefined): Promise<void> {
     const previous = this.session;

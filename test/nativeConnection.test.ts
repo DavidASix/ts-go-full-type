@@ -1,17 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({}));
 import type { API } from "typescript/unstable/async";
 import { NativeConnection } from "../src/native/nativeConnection";
 import type { NativePreviewExtensionAPI } from "../src/native/nativeExtension";
 import { deferred } from "./support/deferred";
 
-function setup(connect = vi.fn(async () => client())) {
+function setup(connect = vi.fn(async () => client()), ready = true) {
   let initialized!: () => void;
   const unsubscribe = vi.fn();
   const native = {
     onLanguageServerInitialized: (callback: () => void) => {
       initialized = callback;
-      callback();
+      if (ready) callback();
       return { dispose: unsubscribe };
     },
     initializeAPIConnection: vi.fn(async () => "/test-pipe"),
@@ -22,6 +22,8 @@ function setup(connect = vi.fn(async () => client())) {
 function client() {
   return { close: vi.fn(async () => undefined) } as unknown as API<true>;
 }
+
+afterEach(() => vi.useRealTimers());
 
 describe("native connection ownership", () => {
   it("closes a late handshake and rejects its result after shutdown", async () => {
@@ -77,4 +79,45 @@ describe("native connection ownership", () => {
     expect(late.close).toHaveBeenCalledOnce();
     await connection.disposeAsync();
   });
+  it("shares a single handshake across concurrent requests", async () => {
+    const h = setup();
+    const connections = await Promise.all([h.connection.get(), h.connection.get()]);
+    expect(connections[0].api).toBe(connections[1].api);
+    expect(h.connect).toHaveBeenCalledOnce();
+    await h.connection.disposeAsync();
+    await expect(h.connection.get()).rejects.toThrow("disposed");
+  });
+
+  it("retries a failed operation once after server initialization, then stops", async () => {
+    const h = setup();
+    const operation = vi.fn(async () => {
+      h.restart();
+      throw new Error("socket closed");
+    });
+    await expect(h.connection.runWithReconnect(operation)).rejects.toThrow("restarted during the request");
+    expect(operation).toHaveBeenCalledTimes(2);
+    await h.connection.disposeAsync();
+  });
+
+  it("does not replay semantic failures or canceled work", async () => {
+    const h = setup();
+    const operation = vi.fn(async () => { throw new Error("invalid semantic type"); });
+    await expect(h.connection.runWithReconnect(operation)).rejects.toThrow("invalid semantic type");
+    expect(operation).toHaveBeenCalledOnce();
+    const scope = new AbortController(); scope.abort();
+    await expect(h.connection.runWithReconnect(operation, scope.signal)).rejects.toThrow("superseded");
+    expect(operation).toHaveBeenCalledOnce();
+    await h.connection.disposeAsync();
+  });
+
+  it("times out initialization with an actionable error instead of waiting indefinitely", async () => {
+    vi.useFakeTimers();
+    const h = setup(undefined, false);
+    const rejected = expect(h.connection.get()).rejects.toThrow("15 seconds");
+    await vi.advanceTimersByTimeAsync(15000);
+    await rejected;
+    expect(h.connect).not.toHaveBeenCalled();
+    await h.connection.disposeAsync();
+  });
+
 });

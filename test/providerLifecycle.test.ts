@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({}));
-import type { API, Project, Snapshot } from "typescript/unstable/async";
+import type { API, Project, Snapshot, Type } from "typescript/unstable/async";
 import type { SourceFile } from "typescript/unstable/ast";
 import { NativeConnection } from "../src/native/nativeConnection";
 import type { NativePreviewExtensionAPI } from "../src/native/nativeExtension";
 import { CompleteTypeProvider, type ResolveRequest } from "../src/native/completeTypeProvider";
+import * as focusModule from "../src/native/focus";
+import type { Node, TypeNode } from "typescript/unstable/ast";
 import { deferred } from "./support/deferred";
 
 function request(uri = "file:///a.ts", signal = new AbortController().signal): ResolveRequest {
@@ -22,7 +24,7 @@ function setup(updateSnapshot: API<true>["updateSnapshot"]) {
   const connection = new NativeConnection({ activate: async () => native, connect: async () => api });
   return { provider: new CompleteTypeProvider(connection), connection, api };
 }
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("serialized resolution ownership", () => {
   it("releases a late snapshot and skips its semantic requests after cancellation", async () => {
@@ -82,4 +84,30 @@ describe("serialized resolution ownership", () => {
     expect(update).toHaveBeenCalledOnce();
     await connection.disposeAsync();
   });
+  it("keeps the displayed snapshot alive independently of the completed focus request", async () => {
+    const nativeType = {
+      id: 1, getAliasSymbol: async () => undefined,
+      isUnionType: () => false, isIntersectionType: () => false, isIndexedAccessType: () => false,
+      isIndexType: () => false, isConditionalType: () => false, isSubstitutionType: () => false,
+      isTemplateLiteralType: () => false, isStringMappingType: () => false,
+      isTypeParameter: () => false, isObjectType: () => false, isErrorType: () => false,
+    } as unknown as Type;
+    const loaded = snapshot("wanted text");
+    Object.assign(loaded.project, { configFileName: "/tsconfig.json", checker: {
+      getTypeFromTypeNode: async () => nativeType, typeToString: async () => "string",
+    } });
+    vi.spyOn(focusModule, "findSymbolFocus").mockReturnValue({ name: "Example", start: 0, end: 7, node: {} as Node, typeNode: {} as TypeNode });
+    const { provider, connection } = setup(vi.fn(async () => loaded.value));
+    const scope = new AbortController();
+    const current = await provider.resolve(request(undefined, scope.signal));
+    expect(current?.result.root.text).toBe("string");
+    expect(loaded.disposed).not.toHaveBeenCalled();
+    scope.abort();
+    await current!.graph.collapseAll();
+    expect(loaded.disposed).not.toHaveBeenCalled();
+    await Promise.all([current!.dispose(), provider.disposeAsync()]);
+    expect(loaded.disposed).toHaveBeenCalledOnce();
+    await connection.disposeAsync();
+  });
+
 });

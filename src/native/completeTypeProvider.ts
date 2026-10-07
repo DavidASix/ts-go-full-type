@@ -240,4 +240,3 @@ async function resolveSymbolType(
     : await checker.getTypeOfSymbolAtLocation(symbol, focus.node);
   return type.isErrorType() ? undefined : type;
 }
-

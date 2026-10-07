@@ -34,6 +34,8 @@ interface ReadyWaiter {
   readonly timer: NodeJS.Timeout;
 }
 
+class InterruptedHandshakeError extends UserVisibleError {}
+
 export class NativeConnection implements vscode.Disposable {
   private nativeAPI: NativePreviewExtensionAPI | undefined;
   private nativeSubscription: vscode.Disposable | undefined;
@@ -65,7 +67,7 @@ export class NativeConnection implements vscode.Disposable {
     if (this.client !== undefined) {
       return { api: this.client, generation: this.clientGeneration };
     }
-    this.connecting ??= this.connect().finally(() => {
+    this.connecting ??= this.connectWithRetry().finally(() => {
       this.connecting = undefined;
     });
     return this.connecting;
@@ -123,6 +125,16 @@ export class NativeConnection implements vscode.Disposable {
     void this.disposeAsync();
   }
 
+  private async connectWithRetry(): Promise<ConnectedAPI> {
+    try {
+      return await this.connect();
+    } catch (error) {
+      if (!(error instanceof InterruptedHandshakeError)) throw error;
+      // Concurrent callers share this retry, including the latest focused symbol.
+      return this.connect();
+    }
+  }
+
   private async connect(): Promise<ConnectedAPI> {
     await this.ensureNativeAPI();
     this.assertAlive();
@@ -144,7 +156,7 @@ export class NativeConnection implements vscode.Disposable {
     if (this.disposed || epoch !== this.serverEpoch) {
       await client.close().catch(() => undefined);
       this.assertAlive();
-      throw new UserVisibleError("The TypeScript 7 server restarted while connecting. Refresh the type and try again.");
+      throw new InterruptedHandshakeError("The TypeScript 7 server restarted while connecting. Refresh the type and try again.");
     }
     this.client = client;
     this.clientGeneration += 1;

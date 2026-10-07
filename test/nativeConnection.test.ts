@@ -62,23 +62,39 @@ describe("native connection ownership", () => {
     expect(second.api.close).toHaveBeenCalledOnce();
   });
 
-  it("never publishes a handshake from the previous server epoch", async () => {
+  it("retries an interrupted handshake without publishing the previous server's client", async () => {
     const handshake = deferred<API<true>>();
     const started = deferred<void>();
-    const { connection, restart } = setup(vi.fn(() => {
-      started.resolve();
-      return handshake.promise;
-    }));
+    const replacement = client();
+    const connect = vi.fn(async () => replacement).mockImplementationOnce(() => {
+      started.resolve(); return handshake.promise;
+    });
+    const { connection, restart } = setup(connect);
     const getting = connection.get();
-    const rejected = expect(getting).rejects.toThrow("restarted");
     await started.promise;
     restart();
     const late = client();
     handshake.resolve(late);
-    await rejected;
+    const current = await getting;
+    expect(current.api).toBe(replacement);
     expect(late.close).toHaveBeenCalledOnce();
+    expect(connect).toHaveBeenCalledTimes(2);
     await connection.disposeAsync();
   });
+
+  it("limits handshake retries when the server keeps restarting", async () => {
+    const clients: API<true>[] = [];
+    let restart!: () => void;
+    const connect = vi.fn(async () => {
+      restart(); const next = client(); clients.push(next); return next;
+    });
+    const h = setup(connect); restart = h.restart;
+    await expect(h.connection.get()).rejects.toThrow("restarted while connecting");
+    expect(connect).toHaveBeenCalledTimes(2);
+    for (const next of clients) expect(next.close).toHaveBeenCalledOnce();
+    await h.connection.disposeAsync();
+  });
+
   it("shares a single handshake across concurrent requests", async () => {
     const h = setup();
     const connections = await Promise.all([h.connection.get(), h.connection.get()]);

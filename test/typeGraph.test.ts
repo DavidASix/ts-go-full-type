@@ -445,7 +445,9 @@ describe("TypeGraph", () => {
       started.resolve();
       return response.promise;
     });
+    const queries = vi.spyOn(h.checker, "getSignaturesOfType");
     const active = graph.toggle(child.viewNodeId);
+    const stopped = expect(active).rejects.toThrow("disposed");
     const queued = graph.toggle(child.viewNodeId);
     const rejected = expect(queued).rejects.toThrow("disposed");
     await started.promise;
@@ -454,7 +456,8 @@ describe("TypeGraph", () => {
     await Promise.resolve();
     expect(disposed).toBe(false);
     response.resolve(string);
-    await Promise.all([active, rejected, disposing]);
+    await Promise.all([stopped, rejected, disposing]);
+    expect(queries).not.toHaveBeenCalled();
     await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("disposed");
   });
 

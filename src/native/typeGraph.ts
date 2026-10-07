@@ -106,7 +106,7 @@ export class TypeGraph {
     });
   }
 
-  public clear(): void {
+  private clear(): void {
     this.registry.clear();
     this.root = undefined;
     this.rootType = undefined;
@@ -121,7 +121,7 @@ export class TypeGraph {
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
     const result = this.pending.then(async () => {
-      if (this.disposed) throw new UserVisibleError("This type session has been disposed.");
+      this.assertUsable();
       const usage = this.root === undefined ? { nodes: 0, size: 0 } : measureTree(this.root);
       this.budget = new GraphBudget(this.limits, usage.nodes, usage.size);
       await operation();
@@ -341,10 +341,16 @@ export class TypeGraph {
   }
 
   private async query<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertUsable();
     this.checkRequest();
     const result = await operation();
+    this.assertUsable();
     this.checkRequest();
     return result;
+  }
+
+  private assertUsable(): void {
+    if (this.disposed) throw new UserVisibleError("This type session has been disposed.");
   }
 
   private async print(type: Type): Promise<string> {

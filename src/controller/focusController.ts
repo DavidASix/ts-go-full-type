@@ -23,6 +23,7 @@ export class FocusController implements vscode.Disposable {
     private readonly view: FullTypeViewProvider,
   ) {
     this.disposables.push(
+      provider.onDidInvalidate(() => this.refresh()),
       vscode.window.onDidChangeActiveTextEditor(() => this.schedule(false)),
       vscode.window.onDidChangeTextEditorSelection((event) => {
         if (event.textEditor === vscode.window.activeTextEditor) {

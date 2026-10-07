@@ -34,6 +34,7 @@ export class TypeGraph {
   private root: TypeRenderNode | undefined;
   private rootType: Type | undefined;
   private pending: Promise<void> = Promise.resolve();
+  private disposed = false;
 
   public constructor(
     private readonly checker: Checker,
@@ -107,8 +108,18 @@ export class TypeGraph {
     this.rootType = undefined;
   }
 
+  public async disposeAsync(): Promise<void> {
+    this.disposed = true;
+    // A snapshot must outlive every operation using its checker and type handles.
+    await this.pending;
+    this.clear();
+  }
+
   private enqueue(operation: () => Promise<void>): Promise<void> {
-    const result = this.pending.then(operation);
+    const result = this.pending.then(async () => {
+      if (this.disposed) throw new UserVisibleError("This type session has been disposed.");
+      await operation();
+    });
     this.pending = result.catch(() => undefined);
     return result;
   }

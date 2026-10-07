@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   SignatureKind,
   SymbolFlags,
@@ -157,6 +157,8 @@ function createHarness() {
   }
   return { checker, type, property, members, arguments_, aliasArguments, signature, index, model };
 }
+
+import { deferred } from "./support/deferred";
 
 const enclosing = {} as Node;
 
@@ -427,4 +429,33 @@ describe("TypeGraph", () => {
     expect(child.children).toBeUndefined();
     expect(renderNode(root, 0)).toBe(before);
   });
+  it("drains active graph work and rejects queued work before releasing its snapshot", async () => {
+    const h = createHarness();
+    const nested = h.type("Nested", "object");
+    const string = h.type("string");
+    h.property(nested, "value", string);
+    const type = h.type("Root", "object");
+    h.property(type, "nested", nested);
+    const graph = new TypeGraph(h.checker, enclosing, 17);
+    const root = await graph.createRoot(type);
+    const child = root.children![0]!.node;
+    const started = deferred<void>();
+    const response = deferred<Type>();
+    vi.spyOn(h.checker as unknown as { getTypeOfSymbol(symbol: AsyncSymbol): Promise<Type | undefined> }, "getTypeOfSymbol").mockImplementationOnce(async () => {
+      started.resolve();
+      return response.promise;
+    });
+    const active = graph.toggle(child.viewNodeId);
+    const queued = graph.toggle(child.viewNodeId);
+    const rejected = expect(queued).rejects.toThrow("disposed");
+    await started.promise;
+    let disposed = false;
+    const disposing = graph.disposeAsync().then(() => { disposed = true; });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    response.resolve(string);
+    await Promise.all([active, rejected, disposing]);
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("disposed");
+  });
+
 });

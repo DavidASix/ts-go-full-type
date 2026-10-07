@@ -8,7 +8,7 @@ import {
   type Type,
 } from "typescript/unstable/async";
 import type { SourceFile } from "typescript/unstable/ast";
-import { UserVisibleError } from "../shared/errors";
+import { UserVisibleError, isLikelyConnectionError } from "../shared/errors";
 import type { CompleteTypeResult } from "../shared/protocol";
 import { findSymbolFocus, type SymbolFocus } from "./focus";
 import { NativeConnection, type ConnectedAPI } from "./nativeConnection";
@@ -31,14 +31,29 @@ export class CompleteTypeProvider implements vscode.Disposable {
   private openedUri: string | undefined;
   private connectionGeneration = 0;
   private readonly snapshots = new Set<Snapshot>();
+  private readonly sessions = new Set<ResolvedCompleteType>();
+  private readonly invalidationListeners = new Set<() => void>();
 
-  public constructor(private readonly connection: NativeConnection) {}
+  public onDidInvalidate(listener: () => void): vscode.Disposable {
+    this.invalidationListeners.add(listener);
+    return { dispose: () => { this.invalidationListeners.delete(listener); } };
+  }
+
+  public constructor(private readonly connection: NativeConnection) {
+    connection.onDidInvalidate(() => {
+      this.openedUri = undefined;
+      const disposals = [...this.sessions].map((session) => session.dispose());
+      for (const listener of this.invalidationListeners) listener();
+      return Promise.all(disposals).then(() => undefined);
+    });
+  }
 
   public async resolve(request: ResolveRequest): Promise<ResolvedCompleteType | undefined> {
     return this.connection.runWithReconnect(async (connected) => this.resolveConnected(connected, request));
   }
 
   public async disposeAsync(): Promise<void> {
+    await Promise.all([...this.sessions].map(async (session) => session.dispose()));
     await Promise.all([...this.snapshots].map(async (snapshot) => snapshot.dispose()));
     this.snapshots.clear();
     this.openedUri = undefined;
@@ -119,20 +134,19 @@ export class CompleteTypeProvider implements vscode.Disposable {
         project: project.configFileName,
         generation: request.generation,
       };
-      let disposed = false;
-      return {
+      let disposal: Promise<void> | undefined;
+      const session: ResolvedCompleteType = {
         result,
         graph,
         focus,
-        dispose: async () => {
-          if (disposed) {
-            return;
-          }
-          disposed = true;
-          graph.clear();
+        dispose: () => disposal ??= (async () => {
+          await graph.disposeAsync();
           await this.releaseSnapshot(snapshot!);
-        },
+          this.sessions.delete(session);
+        })(),
       };
+      this.sessions.add(session);
+      return session;
     } catch (error) {
       if (snapshot !== undefined) {
         await this.releaseSnapshot(snapshot);
@@ -145,7 +159,11 @@ export class CompleteTypeProvider implements vscode.Disposable {
     if (!this.snapshots.delete(snapshot) || snapshot.isDisposed()) {
       return;
     }
-    await snapshot.dispose();
+    try {
+      await snapshot.dispose();
+    } catch (error) {
+      if (!isLikelyConnectionError(error)) throw error;
+    }
   }
 }
 

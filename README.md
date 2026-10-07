@@ -49,3 +49,7 @@ TypeScript 7 native preview. Other compiler/protocol versions are unsupported.
 `npm run test:coverage` reports coverage for lifecycle orchestration and the webview,
 with minimum coverage enforced. Regression tests cover late handshakes, restarts,
 stale requests, snapshot disposal, hidden views, keyboard navigation, and Copy.
+
+Graph interactions are limited to 5,000 nodes and 2 MB of UTF-8 graph text.
+Budgets are charged during materialization; rejected interactions retain the prior
+view, including when expanding multiple branches at once.

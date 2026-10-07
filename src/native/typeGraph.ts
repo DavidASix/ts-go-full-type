@@ -10,13 +10,12 @@ import type { Node } from "typescript/unstable/ast";
 import { settleQueries } from "../shared/async";
 import { UserVisibleError } from "../shared/errors";
 import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
+import { DEFAULT_GRAPH_LIMITS, GraphBudget, type GraphLimits } from "./graphBudget";
 import { isReadonlyProperty } from "./propertyModifiers";
 import { hasPresentationTruncation } from "./truncation";
 
 const PRINT_FLAGS = NodeBuilderFlags.NoTruncation |
   NodeBuilderFlags.MultilineObjectLiterals | NodeBuilderFlags.InTypeAlias;
-const MAX_NODES = 5_000;
-const MAX_OUTPUT = 2_000_000;
 
 interface Materialized {
   readonly layout: Exclude<NodeLayout, "atom">;
@@ -39,22 +38,24 @@ export class TypeGraph {
   private rootType: Type | undefined;
   private pending: Promise<void> = Promise.resolve();
   private disposed = false;
+  private budget = new GraphBudget(DEFAULT_GRAPH_LIMITS);
 
   public constructor(
     private readonly checker: Checker,
     private readonly enclosingDeclaration: Node,
     private readonly generation: number,
     private readonly checkRequest: () => void = () => {},
+    private readonly limits: GraphLimits = DEFAULT_GRAPH_LIMITS,
   ) {}
 
   public async createRoot(type: Type): Promise<TypeRenderNode> {
     this.registry.clear();
+    this.budget = new GraphBudget(this.limits);
     this.rootType = type;
     this.root = await this.createChild(type, []);
     if (this.root.content.state === "collapsed") {
       await this.expandEntry(this.getEntry(this.root.viewNodeId), true);
     }
-    this.assertWithinLimits();
     return this.root;
   }
 
@@ -71,9 +72,7 @@ export class TypeGraph {
 
   public expandFrontier(): Promise<void> {
     return this.enqueue(async () => {
-      const frontier = [...this.registry.values()].filter(
-        (entry) => entry.node.content.state === "collapsed" && this.isVisible(entry.node),
-      );
+      const frontier = this.visibleFrontier();
       const expanded: RegistryEntry[] = [];
       try {
         for (const entry of frontier) {
@@ -123,6 +122,8 @@ export class TypeGraph {
   private enqueue(operation: () => Promise<void>): Promise<void> {
     const result = this.pending.then(async () => {
       if (this.disposed) throw new UserVisibleError("This type session has been disposed.");
+      const usage = this.root === undefined ? { nodes: 0, size: 0 } : measureTree(this.root);
+      this.budget = new GraphBudget(this.limits, usage.nodes, usage.size);
       await operation();
     });
     this.pending = result.catch(() => undefined);
@@ -133,6 +134,7 @@ export class TypeGraph {
     const beforeIds = new Set(this.registry.keys());
     try {
       const materialized = await entry.load();
+      if (materialized.expressionText !== undefined) this.budget.addText(materialized.expressionText);
       entry.node.content = { state: "expanded", ...materialized };
       // Keep the complete immediate root union shape visible on first focus.
       if (initial && (entry.node.content.layout === "union" || entry.node.content.layout === "intersection")) {
@@ -141,6 +143,7 @@ export class TypeGraph {
             const child = this.getEntry(edge.node.viewNodeId);
             const shape = await (child.loadBoundary ?? child.load)();
             if (shape.layout === "object" || shape.layout === "details") {
+              if (shape.expressionText !== undefined) this.budget.addText(shape.expressionText);
               child.node.content = { state: "expanded", ...shape };
             } else {
               this.collectIds(shape.children).forEach((id) => this.registry.delete(id));
@@ -148,7 +151,7 @@ export class TypeGraph {
           }
         }
       }
-      this.assertWithinLimits();
+
     } catch (error) {
       entry.node.content = { state: "collapsed", layout: "atom" };
       for (const id of this.registry.keys()) {
@@ -185,13 +188,14 @@ export class TypeGraph {
   private async materializeObject(type: Type, ancestors: readonly number[]): Promise<Materialized> {
     const children: TypeRenderEdge[] = [];
     for (const property of await this.query(() => this.checker.getPropertiesOfType(type))) {
+      this.budget.assertCanAddNode();
       const propertyType = await this.query(() => this.checker.getTypeOfSymbol(property));
-      children.push({
+      children.push(this.edge({
         label: quotePropertyName(property.name),
         optional: Boolean(property.flags & SymbolFlags.Optional),
         readonly: await isReadonlyProperty(property, (operation) => this.query(operation)),
         node: propertyType === undefined ? this.leaf("unknown") : await this.createChild(propertyType, ancestors),
-      });
+      }));
     }
     let hasSignatures = false;
     for (const kind of [SignatureKind.Call, SignatureKind.Construct]) {
@@ -200,20 +204,20 @@ export class TypeGraph {
       for (const [index, signature] of signatures.entries()) {
         const label = `${kind === SignatureKind.Call ? "call" : "new"}${signatures.length > 1 ? ` ${index + 1}` : ""}`;
         const node = this.register(label, () => this.materializeSignature(signature, ancestors));
-        children.push({ label, node });
+        children.push(this.edge({ label, node }));
       }
     }
     const indexes = await this.query(() => this.checker.getIndexInfosOfType(type));
     hasSignatures ||= indexes.length > 0;
     for (const index of indexes) {
-      children.push({
+      children.push(this.edge({
         label: `${index.isReadonly ? "readonly " : ""}[key: ${await this.print(index.keyType)}]`,
         node: await this.createChild(index.valueType, ancestors),
-      });
+      }));
     }
     const arguments_ = await this.objectArguments(type);
     for (const [index, argument] of arguments_.entries()) {
-      children.push({ role: "typeArgument", label: `type argument ${index + 1}`, node: await this.createChild(argument, ancestors) });
+      children.push(this.edge({ role: "typeArgument", label: `type argument ${index + 1}`, node: await this.createChild(argument, ancestors) }));
     }
     // Preserve the compiler's callable/indexed syntax in copied output. The tree
     // still exposes each signature, parameter, return, and indexed value type.
@@ -224,22 +228,22 @@ export class TypeGraph {
   private async materializeSignature(signature: Signature, ancestors: readonly number[]): Promise<Materialized> {
     const children: TypeRenderEdge[] = [];
     for (const parameter of await this.query(() => signature.getTypeParameters())) {
-      children.push({ label: "type parameter", node: await this.createChild(parameter, ancestors) });
+      children.push(this.edge({ label: "type parameter", node: await this.createChild(parameter, ancestors) }));
     }
     const thisParameter = await this.query(() => signature.getThisParameter());
     const parameters = [...(thisParameter === undefined ? [] : [thisParameter]), ...await this.query(() => signature.getParameters())];
     for (const [index, parameter] of parameters.entries()) {
       const type = await this.query(() => this.checker.getTypeOfSymbol(parameter));
-      children.push({
+      children.push(this.edge({
         label: `${signature.hasRestParameter && index === parameters.length - 1 ? "..." : ""}${parameter.name}`,
         optional: Boolean(parameter.flags & SymbolFlags.Optional),
         node: type === undefined ? this.leaf("unknown") : await this.createChild(type, ancestors),
-      });
+      }));
     }
     const returnType = await this.query(() => this.checker.getReturnTypeOfSignature(signature));
-    if (returnType !== undefined) children.push({ label: "return", node: await this.createChild(returnType, ancestors) });
+    if (returnType !== undefined) children.push(this.edge({ label: "return", node: await this.createChild(returnType, ancestors) }));
     const predicate = await this.query(() => this.checker.getTypePredicateOfSignature(signature));
-    if (predicate?.type !== undefined) children.push({ label: "predicate", node: await this.createChild(predicate.type, ancestors) });
+    if (predicate?.type !== undefined) children.push(this.edge({ label: "predicate", node: await this.createChild(predicate.type, ancestors) }));
     return { layout: "details", children };
   }
 
@@ -261,17 +265,18 @@ export class TypeGraph {
       (await this.query(() => type.getTypes())).forEach((span, index) => values.push([`span ${index + 1}`, span]));
     }
     const children: TypeRenderEdge[] = [];
-    for (const [label, child] of values) children.push({ label, node: await this.createChild(child, ancestors) });
+    for (const [label, child] of values) children.push(this.edge({ label, node: await this.createChild(child, ancestors) }));
     return children;
   }
 
   private async createChildren(types: readonly Type[], ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
     const children: TypeRenderEdge[] = [];
-    for (const type of types) children.push({ node: await this.createChild(type, ancestors) });
+    for (const type of types) children.push(this.edge({ node: await this.createChild(type, ancestors) }));
     return children;
   }
 
   private async createChild(type: Type, ancestors: readonly number[]): Promise<GraphNode> {
+    this.budget.assertCanAddNode();
     const text = await this.collapsedDisplay(type);
     if (ancestors.includes(type.id)) return { ...this.leaf(text), content: { state: "recursive", layout: "atom" } };
     if (!(await this.isExpandable(type))) return this.leaf(await this.print(type));
@@ -297,12 +302,14 @@ export class TypeGraph {
   }
 
   private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "function"): GraphNode {
+    this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, typeKind, content: { state: "collapsed", layout: "atom" }};
     this.registry.set(node.viewNodeId, { node, load });
     return node;
   }
 
   private leaf(text: string): GraphNode {
+    this.budget.addNode(text);
     return { viewNodeId: this.allocateId(), text, content: { state: "leaf", layout: "atom" }};
   }
 
@@ -342,6 +349,7 @@ export class TypeGraph {
 
   private async print(type: Type): Promise<string> {
     const text = await this.query(() => this.checker.typeToString(type, this.enclosingDeclaration, PRINT_FLAGS));
+    this.budget.assertTextFits(text);
     if (hasPresentationTruncation(text)) {
       throw new UserVisibleError("TypeScript returned a truncated type. Refresh after the project finishes loading.");
     }
@@ -362,8 +370,22 @@ export class TypeGraph {
     return entry;
   }
 
-  private isVisible(target: TypeRenderNode): boolean {
-    return this.root !== undefined && containsVisibleNode(this.root, target);
+  private visibleFrontier(): RegistryEntry[] {
+    const frontier: RegistryEntry[] = [];
+    const stack = this.root === undefined ? [] : [this.root as TypeRenderNode];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (node.content.state === "collapsed") frontier.push(this.getEntry(node.viewNodeId));
+      else if (node.content.state === "expanded") {
+        for (const edge of [...node.content.children].reverse()) stack.push(edge.node);
+      }
+    }
+    return frontier;
+  }
+
+  private edge(edge: TypeRenderEdge): TypeRenderEdge {
+    this.budget.addText((edge.label ?? "") + (edge.annotation ?? ""));
+    return edge;
   }
 
   private collectIds(edges: readonly TypeRenderEdge[] | undefined): string[] {
@@ -374,27 +396,16 @@ export class TypeGraph {
     return ids;
   }
 
-  private assertWithinLimits(): void {
-    if (this.root === undefined) return;
-    const { nodes, size } = measureTree(this.root);
-    if (nodes > MAX_NODES) throw new UserVisibleError("Expansion would exceed the 5,000-node safety limit. The previous view was kept.");
-    if (size > MAX_OUTPUT) throw new UserVisibleError("Expansion would exceed the 2 MB output safety limit. The previous view was kept.");
-  }
-}
-
-function containsVisibleNode(current: TypeRenderNode, target: TypeRenderNode): boolean {
-  return current === target || (current.content.state === "expanded" &&
-    (current.content.children ?? []).some((edge) => containsVisibleNode(edge.node, target)));
 }
 
 function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
   let nodes = 1;
-  let size = node.text.length + (node.content.expressionText?.length ?? 0);
+  let size = Buffer.byteLength(node.text + (node.content.expressionText ?? ""), "utf8");
   if (node.content.state === "expanded") {
     for (const edge of node.content.children ?? []) {
       const child = measureTree(edge.node);
       nodes += child.nodes;
-      size += (edge.label?.length ?? 0) + child.size;
+      size += Buffer.byteLength((edge.label ?? "") + (edge.annotation ?? ""), "utf8") + child.size;
     }
   }
   return { nodes, size };

@@ -458,4 +458,33 @@ describe("TypeGraph", () => {
     await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("disposed");
   });
 
+  it("stops querying oversized branches when the allocation budget is exhausted", async () => {
+    const h = createHarness();
+    const large = h.type("Large", "object");
+    for (let index = 0; index < 40; index++) h.property(large, `value${index}`, h.type("string"));
+    const type = h.type("Root", "object"); h.property(type, "large", large);
+    const graph = new TypeGraph(h.checker, enclosing, 18, undefined, { maxNodes: 6, maxTextBytes: 10000 });
+    const root = await graph.createRoot(type);
+    const child = root.content.children![0]!.node;
+    const before = renderNode(root, 0);
+    const requests = vi.spyOn(h.checker as unknown as { getTypeOfSymbol(symbol: AsyncSymbol): Promise<Type | undefined> }, "getTypeOfSymbol");
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("6-node");
+    expect(requests).toHaveBeenCalledTimes(4);
+    expect(renderNode(root, 0)).toBe(before);
+    expect(child.content).toEqual({ state: "collapsed", layout: "atom" });
+  });
+
+  it("budgets UTF-8 bytes and restores every frontier branch after a later rejection", async () => {
+    const h = createHarness();
+    const small = h.type("Small", "object"); h.property(small, "value", h.type("string"));
+    const large = h.type("Large", "object"); h.property(large, "value", h.type('"' + "é".repeat(40) + '"'));
+    const type = h.type("Root", "object"); h.property(type, "first", small); h.property(type, "second", large);
+    const graph = new TypeGraph(h.checker, enclosing, 19, undefined, { maxNodes: 100, maxTextBytes: 100 });
+    const root = await graph.createRoot(type);
+    const before = renderNode(root, 0);
+    await expect(graph.expandFrontier()).rejects.toThrow("output safety limit");
+    expect(renderNode(root, 0)).toBe(before);
+    expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["collapsed", "collapsed"]);
+  });
+
 });

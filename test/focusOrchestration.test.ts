@@ -23,7 +23,7 @@ import { deferred } from "./support/deferred";
 
 function session(request: ResolveRequest): ResolvedCompleteType {
   return {
-    result: { name: request.offset < 5 ? "First" : "Second", generation: request.generation, compilerVersion: "7.0.2", sourceUri: request.uri, project: "/tsconfig.json", root: { text: "string", viewNodeId: "leaf", state: "leaf", layout: "atom" } },
+    result: { name: request.offset < 5 ? "First" : "Second", generation: request.generation, compilerVersion: "7.0.2", sourceUri: request.uri, project: "/tsconfig.json", root: { text: "string", viewNodeId: "leaf", content: { state: "leaf", layout: "atom" }} },
     focus: { start: request.offset < 5 ? 0 : 6, end: request.offset < 5 ? 5 : 12, name: "symbol", node: {} },
     graph: {}, dispose: vi.fn(async () => undefined),
   } as unknown as ResolvedCompleteType;

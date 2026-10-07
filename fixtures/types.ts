@@ -72,3 +72,16 @@ type GenericTree<T extends { id: string }> = {
 };
 
 class Phantom<T> {}
+
+export type ModifierFixture = {
+  readonly value: string;
+  readonly nested?: { readonly count: number };
+  mutable: number;
+};
+export type MappedReadonlyFixture = Readonly<{ value: string }>;
+export type MappedMutableFixture = { -readonly [K in keyof ModifierFixture]: ModifierFixture[K] };
+export class GetterFixture {
+  get value(): string { return "value"; }
+  get mutable(): string { return "mutable"; }
+  set mutable(value: string) { void value; }
+}

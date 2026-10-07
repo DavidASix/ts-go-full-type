@@ -4,7 +4,7 @@ import { tokenizeTypeScript } from "../src/sidebar/codeLayout";
 import { escapeHtml, renderHtml } from "../src/sidebar/renderHtml";
 import { renderCompleteType } from "../src/sidebar/renderText";
 
-const leaf: TypeRenderNode = { viewNodeId: "", text: "string", state: "leaf", layout: "atom" };
+const leaf: TypeRenderNode = { viewNodeId: "", text: "string", content: { state: "leaf", layout: "atom" }};
 const result: CompleteTypeResult = {
   name: "Example",
   compilerVersion: "7.0.2",
@@ -13,10 +13,7 @@ const result: CompleteTypeResult = {
   generation: 2,
   root: {
     viewNodeId: "",
-    text: "{ dangerous: string }",
-    state: "expanded",
-    layout: "object",
-    children: [{ label: "dangerous", node: leaf }],
+    text: "{ dangerous: string }", content: { state: "expanded", layout: "object", children: [{ label: "dangerous", node: leaf }] },
   },
 };
 
@@ -45,12 +42,9 @@ describe("rendering", () => {
   it("copies raw expanded TypeScript without disclosure glyphs or HTML", () => {
     const expandable: TypeRenderNode = {
       viewNodeId: "2:1",
-      text: "Child",
-      state: "collapsed",
-      layout: "atom",
+      text: "Child", content: { state: "collapsed", layout: "atom" },
     };
-    result.root.children = [{ label: "child", node: expandable }];
-    const raw = renderCompleteType(result);
+    const raw = renderCompleteType({ ...result, root: { ...result.root, content: { state: "expanded", layout: "object", children: [{ label: "child", node: expandable }] } } });
     expect(raw).toContain("child: Child;");
     expect(raw).not.toMatch(/[▸▾↩]/);
     expect(raw).not.toContain("<button");
@@ -68,7 +62,7 @@ describe("rendering", () => {
 
     const unsafe: CompleteTypeResult = {
       ...result,
-      root: { viewNodeId: "", text: `"<script>"`, state: "leaf", layout: "atom" },
+      root: { viewNodeId: "", text: `"<script>"`, content: { state: "leaf", layout: "atom" }},
     };
     const html = renderHtml({ kind: "success", result: unsafe, rawText: "" }, resources());
     expect(html).toContain('<span class="tok-string">&quot;&lt;script&gt;&quot;</span>');
@@ -80,15 +74,10 @@ describe("rendering", () => {
       ...result,
       root: {
         viewNodeId: "",
-        text: "root",
-        state: "expanded",
-        layout: "object",
-        children: [{
+        text: "root", content: { state: "expanded", layout: "object", children: [{
           label: "record",
           node: {
-            viewNodeId: "",
-            state: "leaf",
-            layout: "atom",
+            viewNodeId: "", content: { state: "leaf", layout: "atom" },
             text: [
               "Record<string, {",
               "  display_name: string;",
@@ -98,7 +87,7 @@ describe("rendering", () => {
               "}",
             ].join("\n"),
           },
-        }],
+        }] },
       },
     };
     const expected = [
@@ -127,13 +116,10 @@ describe("rendering", () => {
       ...result,
       root: {
         viewNodeId: "",
-        text: "root",
-        state: "expanded",
-        layout: "object",
-        children: [{
+        text: "root", content: { state: "expanded", layout: "object", children: [{
           label: "child",
-          node: { viewNodeId: "2:1", text: "Child", state: "collapsed", layout: "atom" },
-        }],
+          node: { viewNodeId: "2:1", text: "Child", content: { state: "collapsed", layout: "atom" }},
+        }] },
       },
     };
     const html = renderHtml({ kind: "success", result: expandable, rawText: "" }, resources());

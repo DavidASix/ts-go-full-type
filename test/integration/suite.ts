@@ -28,6 +28,23 @@ export async function run(): Promise<void> {
   assert.match(state.rawText, /kind: "l"/);
   assert.ok(state.result.project.endsWith("fixtures/tsconfig.json"), "fixture configured project is selected");
 
+  await focusAlias(editor, document, "ModifierFixture");
+  state = await waitForSuccess(api, "ModifierFixture");
+  assert.match(state.rawText, /readonly value: string/);
+  assert.match(state.rawText, /readonly nested\?:/);
+  const readonlyNested = findEdgeNode(state.result.root, "nested", (node) => node.content.state === "collapsed");
+  assert.ok(readonlyNested);
+  await api.toggle(readonlyNested.viewNodeId);
+  await vscode.commands.executeCommand("fullTypeViewer.expandLevel");
+  state = await waitForSuccess(api, "ModifierFixture");
+  assert.match(state.rawText, /readonly count: number/);
+  await focusAlias(editor, document, "MappedReadonlyFixture");
+  state = await waitForSuccess(api, "MappedReadonlyFixture");
+  assert.ok(state.result.root.content.children?.find((edge) => edge.label === "value")?.readonly);
+  await focusAlias(editor, document, "MappedMutableFixture");
+  state = await waitForSuccess(api, "MappedMutableFixture");
+  assert.equal(state.result.root.content.children?.find((edge) => edge.label === "value")?.readonly, false);
+
   await focusIdentifier(editor, document, "selectedVariable");
   state = await waitForSuccess(api, "selectedVariable");
   assert.match(state.rawText, /fromDefinition: string/);
@@ -42,7 +59,7 @@ export async function run(): Promise<void> {
   state = await waitForSuccess(api, "TreeFixture");
   const tree = state.result.root;
   const edge = (node: TypeRenderNode, label: string): TypeRenderNode => {
-    const result = node.children?.find((child) => child.label === label)?.node;
+    const result = node.content.children?.find((child) => child.label === label)?.node;
     assert.ok(result, `contains ${label}: ${JSON.stringify(node)}`);
     return result;
   };
@@ -51,22 +68,22 @@ export async function run(): Promise<void> {
   const nestedChild = edge(nested, "child");
   await api.toggle(nestedChild.viewNodeId);
   assert.equal(edge(nestedChild, "value").text, "string");
-  assert.equal(edge(nestedChild, "value").state, "leaf");
+  assert.equal(edge(nestedChild, "value").content.state, "leaf");
   const alternatives = edge(tree, "alternatives");
   await api.toggle(alternatives.viewNodeId);
-  assert.equal(alternatives.children?.length, 2);
-  for (const member of alternatives.children ?? []) {
-    assert.equal(member.node.state, "collapsed", "union expansion advances one level");
+  assert.equal(alternatives.content.children?.length, 2);
+  for (const member of alternatives.content.children ?? []) {
+    assert.equal(String(member.node.content.state), "collapsed", "union expansion advances one level");
     await api.toggle(member.node.viewNodeId);
-    assert.equal(member.node.children?.[0]?.node.state, "leaf");
+    assert.equal(member.node.content.children?.[0]?.node.content.state, "leaf");
   }
   const values = edge(tree, "values");
   await api.toggle(values.viewNodeId);
-  assert.equal(values.children?.[0]?.node.text, "string");
+  assert.equal(values.content.children?.[0]?.node.text, "string");
   const pair = edge(tree, "pair");
   await api.toggle(pair.viewNodeId);
-  assert.equal(pair.children?.length, 2);
-  assert.equal(pair.children?.[0]?.node.text, "string");
+  assert.equal(pair.content.children?.length, 2);
+  assert.equal(pair.content.children?.[0]?.node.text, "string");
   const lookup = edge(tree, "lookup");
   await api.toggle(lookup.viewNodeId);
   const indexedValue = edge(lookup, "[key: string]");
@@ -95,7 +112,7 @@ export async function run(): Promise<void> {
   const argument = edge(phantom, "type argument 1");
   await api.toggle(argument.viewNodeId);
   assert.equal(edge(argument, "value").text, "number");
-  assert.equal(edge(argument, "value").state, "leaf");
+  assert.equal(edge(argument, "value").content.state, "leaf");
   state = await waitForSuccess(api, "TreeFixture");
   assert.doesNotMatch(state.rawText, /type argument 1:/);
 
@@ -103,12 +120,12 @@ export async function run(): Promise<void> {
   state = await waitForSuccess(api, "GenericTree");
   for (const label of ["value", "key", "indexed", "conditional", "template", "mapped"]) {
     const node = edge(state.result.root, label);
-    assert.equal(node.state, "collapsed", `${label} is expandable`);
+    assert.equal(String(node.content.state), "collapsed", `${label} is expandable`);
     await api.toggle(node.viewNodeId);
     state = await waitForSuccess(api, "GenericTree");
     assert.equal(state.notice, undefined, `${label} expands without an API error`);
-    assert.equal(node.state, "expanded");
-    assert.ok((node.children?.length ?? 0) > 0, `${label} has semantic children`);
+    assert.equal(String(node.content.state), "expanded");
+    assert.ok((node.content.children?.length ?? 0) > 0, `${label} has semantic children`);
   }
 
   await focusAlias(editor, document, "LargeUnion");
@@ -131,7 +148,7 @@ export async function run(): Promise<void> {
   state = await waitForSuccess(api, "NamedMemberHolder");
   const child = findNode(state.result.root, (node) => node.text === "NamedMember");
   assert.ok(child, "expansion exposes immediate child property");
-  assert.equal(child.state, "collapsed");
+  assert.equal(child.content.state, "collapsed");
   await api.toggle(child.viewNodeId);
   state = await waitForSuccess(api, "NamedMemberHolder");
   assert.ok(hasState(state.result.root, "recursive"), "recursive edge terminates visibly");
@@ -139,17 +156,17 @@ export async function run(): Promise<void> {
   await focusAlias(editor, document, "NamedMemberHolder");
   await vscode.commands.executeCommand("fullTypeViewer.collapseAll");
   state = await waitForSuccess(api, "NamedMemberHolder");
-  assert.equal(findNode(state.result.root, (node) => node.text === "NamedRecursiveMember" && node.viewNodeId.length > 0)?.state, "collapsed");
+  assert.equal(findNode(state.result.root, (node) => node.text === "NamedRecursiveMember" && node.viewNodeId.length > 0)?.content.state, "collapsed");
 
   await vscode.commands.executeCommand("fullTypeViewer.expandLevel");
   state = await waitForSuccess(api, "NamedMemberHolder");
   const expandedMember = findNode(state.result.root, (node) => node.text === "NamedRecursiveMember" && node.viewNodeId.length > 0);
-  assert.equal(expandedMember?.state, "expanded");
-  assert.equal(findNode(expandedMember!, (node) => node.text === "NamedMember")?.state, "collapsed", "one command advances one breadth step");
+  assert.equal(expandedMember?.content.state, "expanded");
+  assert.equal(findNode(expandedMember!, (node) => node.text === "NamedMember")?.content.state, "collapsed", "one command advances one breadth step");
 
   await vscode.commands.executeCommand("fullTypeViewer.collapseAll");
   state = await waitForSuccess(api, "NamedMemberHolder");
-  assert.equal(findNode(state.result.root, (node) => node.text === "NamedRecursiveMember" && node.viewNodeId.length > 0)?.state, "collapsed");
+  assert.equal(findNode(state.result.root, (node) => node.text === "NamedRecursiveMember" && node.viewNodeId.length > 0)?.content.state, "collapsed");
 
   await focusAlias(editor, document, "LargeUnion");
   await focusAlias(editor, document, "RecursiveNode");
@@ -199,18 +216,18 @@ async function runAcceptanceSuite(api: FullTypeViewerTestingAPI, acceptanceFile:
   const element = findEdgeNode(
     state.result.root,
     "element",
-    (node) => node.state === "collapsed" && node.text.includes("VirtualDatasetArrayElementType"),
+    (node) => node.content.state === "collapsed" && node.text.includes("VirtualDatasetArrayElementType"),
   );
   assert.ok(element?.viewNodeId, `array element alias is expandable: ${JSON.stringify(collectEdges(state.result.root, "element"))}`);
   await api.toggle(element.viewNodeId);
   state = await waitForSuccess(api, "VirtualDatasetCell");
   // A union now reveals independently expandable members, rather than silently
   // materializing their properties during the same click.
-  for (const member of element.children ?? []) {
-    if (member.node.state === "collapsed") await api.toggle(member.node.viewNodeId);
+  for (const member of element.content.children ?? []) {
+    if (member.node.content.state === "collapsed") await api.toggle(member.node.viewNodeId);
   }
-  const nestedElement = findEdgeNode(element, "element", (node) => node.state === "recursive" || node.state === "collapsed");
-  if (nestedElement?.state === "collapsed") await api.toggle(nestedElement.viewNodeId);
+  const nestedElement = findEdgeNode(element, "element", (node) => node.content.state === "recursive" || node.content.state === "collapsed");
+  if (nestedElement?.content.state === "collapsed") await api.toggle(nestedElement.viewNodeId);
   assert.ok(hasState(element, "recursive"), `nested array terminates at a recursive edge: ${JSON.stringify(element)}`);
   await vscode.commands.executeCommand("fullTypeViewer.collapseAll");
   state = await waitForSuccess(api, "VirtualDatasetCell");
@@ -272,7 +289,7 @@ function findNode(node: TypeRenderNode, predicate: (node: TypeRenderNode) => boo
   if (predicate(node)) {
     return node;
   }
-  for (const edge of node.children ?? []) {
+  for (const edge of node.content.children ?? []) {
     const found = findNode(edge.node, predicate);
     if (found !== undefined) {
       return found;
@@ -281,8 +298,8 @@ function findNode(node: TypeRenderNode, predicate: (node: TypeRenderNode) => boo
   return undefined;
 }
 
-function hasState(node: TypeRenderNode, state: TypeRenderNode["state"]): boolean {
-  return node.state === state || (node.children ?? []).some((edge) => hasState(edge.node, state));
+function hasState(node: TypeRenderNode, state: TypeRenderNode["content"]["state"]): boolean {
+  return node.content.state === state || (node.content.children ?? []).some((edge) => hasState(edge.node, state));
 }
 
 function findEdgeNode(
@@ -290,7 +307,7 @@ function findEdgeNode(
   label: string,
   predicate: (node: TypeRenderNode) => boolean,
 ): TypeRenderNode | undefined {
-  for (const edge of node.children ?? []) {
+  for (const edge of node.content.children ?? []) {
     if (edge.label === label && predicate(edge.node)) {
       return edge.node;
     }
@@ -304,9 +321,9 @@ function findEdgeNode(
 
 function collectEdges(node: TypeRenderNode, label: string): Array<{ text: string; state: string; viewNodeId: string }> {
   const result: Array<{ text: string; state: string; viewNodeId: string }> = [];
-  for (const edge of node.children ?? []) {
+  for (const edge of node.content.children ?? []) {
     if (edge.label === label) {
-      result.push({ text: edge.node.text, state: edge.node.state, viewNodeId: edge.node.viewNodeId });
+      result.push({ text: edge.node.text, state: edge.node.content.state, viewNodeId: edge.node.viewNodeId });
     }
     result.push(...collectEdges(edge.node, label));
   }

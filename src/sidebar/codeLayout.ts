@@ -142,12 +142,12 @@ export function renderNodeLines(node: TypeRenderNode, depth: number): CodeLine[]
 
 function renderNode(node: TypeRenderNode, depth: number): MutableCodeLine[] {
   const baseIndent = depth * 2;
-  if (node.state === "recursive") {
+  if (node.content.state === "recursive") {
     return [line(baseIndent, { kind: "recursive", label: node.text })];
   }
-  if (node.state === "leaf" || node.state === "collapsed") {
+  if (node.content.state === "leaf" || node.content.state === "collapsed") {
     const lines = compilerLines(node.text, baseIndent);
-    if (node.state === "collapsed" && node.viewNodeId.length > 0) {
+    if (node.content.state === "collapsed" && node.viewNodeId.length > 0) {
       lines[0]?.segments.unshift(disclosure(node, "collapsed"));
     }
     appendNote(lines, node.note, baseIndent);
@@ -168,8 +168,8 @@ function renderNode(node: TypeRenderNode, depth: number): MutableCodeLine[] {
 }
 
 function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
-  const children = node.children ?? [];
-  switch (node.layout) {
+  const children = node.content.children ?? [];
+  switch (node.content.layout) {
     case "object":
       return renderObject(children, depth, node.provenance);
     case "union":
@@ -179,9 +179,9 @@ function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
     case "array":
       return renderArray(children, node.text, depth);
     case "tuple":
-      return compilerLines(node.expressionText ?? node.text, depth * 2);
+      return compilerLines(node.content.expressionText ?? node.text, depth * 2);
     case "details":
-      return compilerLines(node.expressionText ?? node.text, depth * 2);
+      return compilerLines(node.content.expressionText ?? node.text, depth * 2);
     case "atom":
       return compilerLines(node.text, depth * 2);
   }
@@ -200,7 +200,10 @@ function renderObject(
   for (const edge of children.filter((edge) => edge.role !== "typeArgument")) {
     const child = renderNode(edge.node, depth + 1);
     const first = child.shift() ?? line(baseIndent + 2);
-    const propertySegments: CodeSegment[] = [token(edge.label ?? "value", "property")];
+    const propertySegments: CodeSegment[] = [
+      ...(edge.readonly ? [token("readonly", "keyword"), text(" ")] : []),
+      token(edge.label ?? "value", "property"),
+    ];
     if (edge.optional === true) {
       propertySegments.push(token("?", "operator"));
     }

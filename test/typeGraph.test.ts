@@ -180,8 +180,8 @@ describe("TypeGraph", () => {
     expect(text).toContain('kind: "a"');
     expect(text).toContain("value: string");
     expect(text).toContain("count?: number");
-    expect(root.children).toHaveLength(2);
-    expect(root.children!.every((edge) => edge.node.state === "expanded")).toBe(true);
+    expect(root.content.children).toHaveLength(2);
+    expect(root.content.children!.every((edge) => edge.node.content.state === "expanded")).toBe(true);
   });
 
   it("enumerates root intersections member by member", async () => {
@@ -194,8 +194,8 @@ describe("TypeGraph", () => {
     h.members(rootType, left, right);
     const root = await new TypeGraph(h.checker, enclosing, 8).createRoot(rootType);
     const text = renderNode(root, 0);
-    expect(root.layout).toBe("intersection");
-    expect(root.children).toHaveLength(2);
+    expect(root.content.layout).toBe("intersection");
+    expect(root.content.children).toHaveLength(2);
     expect(text).toContain("left: string");
     expect(text).toContain("right: number");
   });
@@ -225,16 +225,16 @@ describe("TypeGraph", () => {
     h.property(rootType, "right", recursive);
     const graph = new TypeGraph(h.checker, enclosing, 3);
     const root = await graph.createRoot(rootType);
-    const left = root.children![0]!.node;
-    const right = root.children![1]!.node;
-    expect(left.state).toBe("collapsed");
-    expect(right.state).toBe("collapsed");
+    const left = root.content.children![0]!.node;
+    const right = root.content.children![1]!.node;
+    expect(left.content.state).toBe("collapsed");
+    expect(right.content.state).toBe("collapsed");
     await graph.toggle(left.viewNodeId);
-    expect(left.state).toBe("expanded");
-    expect(left.children![0]!.node.state).toBe("recursive");
-    expect(right.state).toBe("collapsed");
+    expect(left.content.state).toBe("expanded");
+    expect(left.content.children![0]!.node.content.state).toBe("recursive");
+    expect(right.content.state).toBe("collapsed");
     await graph.toggle(right.viewNodeId);
-    expect(right.state).toBe("expanded");
+    expect(right.content.state).toBe("expanded");
   });
 
   it("expands only the current visible frontier and collapse-all removes descendants", async () => {
@@ -249,10 +249,10 @@ describe("TypeGraph", () => {
     const graph = new TypeGraph(h.checker, enclosing, 4);
     const root = await graph.createRoot(rootType);
     await graph.expandFrontier();
-    expect(root.children!.map((edge) => edge.node.state)).toEqual(["expanded", "expanded"]);
-    expect(root.children![0]!.node.children![0]!.node.state).toBe("collapsed");
+    expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["expanded", "expanded"]);
+    expect(root.content.children![0]!.node.content.children![0]!.node.content.state).toBe("collapsed");
     await graph.collapseAll();
-    expect(root.children!.map((edge) => edge.node.state)).toEqual(["collapsed", "collapsed"]);
+    expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["collapsed", "collapsed"]);
     await expect(graph.toggle("4:9999")).rejects.toThrow("obsolete");
   });
 
@@ -269,12 +269,12 @@ describe("TypeGraph", () => {
     h.property(rootType, "pair", tuple);
     const graph = new TypeGraph(h.checker, enclosing, 5);
     const root = await graph.createRoot(rootType);
-    await graph.toggle(root.children![0]!.node.viewNodeId);
-    await graph.toggle(root.children![1]!.node.viewNodeId);
-    expect(root.children![0]!.node.layout).toBe("array");
-    expect(root.children![0]!.node.children![0]!.node.text).toBe("Element");
-    expect(root.children![1]!.node.layout).toBe("tuple");
-    expect(root.children![1]!.node.children).toHaveLength(2);
+    await graph.toggle(root.content.children![0]!.node.viewNodeId);
+    await graph.toggle(root.content.children![1]!.node.viewNodeId);
+    expect(root.content.children![0]!.node.content.layout).toBe("array");
+    expect(root.content.children![0]!.node.content.children![0]!.node.text).toBe("Element");
+    expect(root.content.children![1]!.node.content.layout).toBe("tuple");
+    expect(root.content.children![1]!.node.content.children).toHaveLength(2);
   });
 
   it("retains compiler-rendered generic arguments in collapsed alias labels", async () => {
@@ -285,7 +285,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "generic", generic);
     const root = await new TypeGraph(h.checker, enclosing, 9).createRoot(rootType);
-    expect(root.children![0]!.node.text).toBe("Box<string>");
+    expect(root.content.children![0]!.node.text).toBe("Box<string>");
   });
 
   it("expands primitive arrays and tuples down to their leaves", async () => {
@@ -300,8 +300,8 @@ describe("TypeGraph", () => {
     const graph = new TypeGraph(h.checker, enclosing, 10);
     const root = await graph.createRoot(rootType);
     await graph.expandFrontier();
-    expect(root.children![0]!.node.children![0]!.node).toMatchObject({ text: "string", state: "leaf" });
-    expect(root.children![1]!.node.children!.map((edge) => edge.node.state)).toEqual(["leaf", "leaf"]);
+    expect(root.content.children![0]!.node.content.children![0]!.node).toMatchObject({ text: "string", content: { state: "leaf", layout: "atom" } });
+    expect(root.content.children![1]!.node.content.children!.map((edge) => edge.node.content.state)).toEqual(["leaf", "leaf"]);
     expect(renderNode(root, 0)).toContain("readonly [string, number?]");
   });
 
@@ -315,15 +315,15 @@ describe("TypeGraph", () => {
     h.members(union, member, h.type("null"));
     const graph = new TypeGraph(h.checker, enclosing, 11);
     const root = await graph.createRoot(union);
-    const branch = root.children![0]!.node;
-    const childId = branch.children![0]!.node.viewNodeId;
+    const branch = root.content.children![0]!.node;
+    const childId = branch.content.children![0]!.node.viewNodeId;
     await graph.toggle(childId);
-    expect(branch.children![0]!.node.children![0]!.node.text).toBe("string");
+    expect(branch.content.children![0]!.node.content.children![0]!.node.text).toBe("string");
     await graph.toggle(branch.viewNodeId);
-    expect(branch.state).toBe("collapsed");
+    expect(branch.content.state).toBe("collapsed");
     await expect(graph.toggle(childId)).rejects.toThrow("obsolete");
     await graph.toggle(branch.viewNodeId);
-    expect(branch.children![0]!.node.state).toBe("collapsed");
+    expect(branch.content.children![0]!.node.content.state).toBe("collapsed");
   });
 
   it("exposes callable parameters, returns, constructors, and index values alongside properties", async () => {
@@ -338,15 +338,15 @@ describe("TypeGraph", () => {
     h.index(callable, string, nested);
     const graph = new TypeGraph(h.checker, enclosing, 12);
     const root = await graph.createRoot(callable);
-    expect(root.children!.map((edge) => edge.label)).toEqual(["label", "call", "new", "[key: string]"]);
-    await graph.toggle(root.children![1]!.node.viewNodeId);
-    const signature = root.children![1]!.node;
-    expect(signature.children!.map((edge) => edge.label)).toEqual(["input", "return"]);
-    expect(signature.children![0]!.node).toMatchObject({ text: "string", state: "leaf" });
-    await graph.toggle(signature.children![1]!.node.viewNodeId);
-    expect(signature.children![1]!.node.children![0]!.node.text).toBe("string");
-    await graph.toggle(root.children![3]!.node.viewNodeId);
-    expect(root.children![3]!.node.children![0]!.node.text).toBe("string");
+    expect(root.content.children!.map((edge) => edge.label)).toEqual(["label", "call", "new", "[key: string]"]);
+    await graph.toggle(root.content.children![1]!.node.viewNodeId);
+    const signature = root.content.children![1]!.node;
+    expect(signature.content.children!.map((edge) => edge.label)).toEqual(["input", "return"]);
+    expect(signature.content.children![0]!.node).toMatchObject({ text: "string", content: { state: "leaf", layout: "atom" } });
+    await graph.toggle(signature.content.children![1]!.node.viewNodeId);
+    expect(signature.content.children![1]!.node.content.children![0]!.node.text).toBe("string");
+    await graph.toggle(root.content.children![3]!.node.viewNodeId);
+    expect(root.content.children![3]!.node.content.children![0]!.node.text).toBe("string");
     expect(renderNode(root, 0)).toContain(h.model(callable).text);
   });
 
@@ -358,9 +358,9 @@ describe("TypeGraph", () => {
     h.model(parameter).constraint = constraint;
     const graph = new TypeGraph(h.checker, enclosing, 13);
     const root = await graph.createRoot(parameter);
-    expect(root.children![0]!.label).toBe("constraint");
-    await graph.toggle(root.children![0]!.node.viewNodeId);
-    expect(root.children![0]!.node.children![0]!.node.text).toBe("string");
+    expect(root.content.children![0]!.label).toBe("constraint");
+    await graph.toggle(root.content.children![0]!.node.viewNodeId);
+    expect(root.content.children![0]!.node.content.children![0]!.node.text).toBe("string");
   });
 
   it("exposes type arguments even when a generic object has no properties", async () => {
@@ -373,13 +373,13 @@ describe("TypeGraph", () => {
     h.property(type, "generic", generic);
     const graph = new TypeGraph(h.checker, enclosing, 17);
     const root = await graph.createRoot(type);
-    const child = root.children![0]!.node;
-    expect(child.state).toBe("collapsed");
+    const child = root.content.children![0]!.node;
+    expect(child.content.state).toBe("collapsed");
     await graph.toggle(child.viewNodeId);
-    const argument = child.children![0]!;
+    const argument = child.content.children![0]!;
     expect(argument).toMatchObject({ role: "typeArgument", label: "type argument 1" });
     await graph.toggle(argument.node.viewNodeId);
-    expect(argument.node.children![0]!.node).toMatchObject({ text: "number", state: "leaf" });
+    expect(argument.node.content.children![0]!.node).toMatchObject({ text: "number", content: { state: "leaf", layout: "atom" } });
     expect(renderNode(root, 0)).not.toContain("type argument 1:");
   });
 
@@ -392,9 +392,9 @@ describe("TypeGraph", () => {
     const initial = renderNode(root, 0);
     const oldId = root.viewNodeId;
     await graph.toggle(oldId);
-    expect(root.state).toBe("collapsed");
+    expect(root.content.state).toBe("collapsed");
     await graph.collapseAll();
-    expect(root.state).toBe("expanded");
+    expect(root.content.state).toBe("expanded");
     expect(renderNode(root, 0)).toBe(initial);
     expect(root.viewNodeId).not.toBe(oldId);
     await expect(graph.toggle(oldId)).rejects.toThrow("obsolete");
@@ -408,10 +408,10 @@ describe("TypeGraph", () => {
     h.property(type, "nested", nested);
     const graph = new TypeGraph(h.checker, enclosing, 15);
     const root = await graph.createRoot(type);
-    const child = root.children![0]!.node;
+    const child = root.content.children![0]!.node;
     await Promise.all([graph.toggle(child.viewNodeId), graph.toggle(child.viewNodeId)]);
-    expect(child.state).toBe("collapsed");
-    expect(child.children).toBeUndefined();
+    expect(child.content.state).toBe("collapsed");
+    expect(child.content.children).toBeUndefined();
   });
 
   it("rejects oversized leaf expansions and leaves the previous branch intact", async () => {
@@ -422,11 +422,11 @@ describe("TypeGraph", () => {
     h.property(type, "large", large);
     const graph = new TypeGraph(h.checker, enclosing, 16);
     const root = await graph.createRoot(type);
-    const child = root.children![0]!.node;
+    const child = root.content.children![0]!.node;
     const before = renderNode(root, 0);
     await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("5,000-node");
-    expect(child.state).toBe("collapsed");
-    expect(child.children).toBeUndefined();
+    expect(child.content.state).toBe("collapsed");
+    expect(child.content.children).toBeUndefined();
     expect(renderNode(root, 0)).toBe(before);
   });
   it("drains active graph work and rejects queued work before releasing its snapshot", async () => {
@@ -438,7 +438,7 @@ describe("TypeGraph", () => {
     h.property(type, "nested", nested);
     const graph = new TypeGraph(h.checker, enclosing, 17);
     const root = await graph.createRoot(type);
-    const child = root.children![0]!.node;
+    const child = root.content.children![0]!.node;
     const started = deferred<void>();
     const response = deferred<Type>();
     vi.spyOn(h.checker as unknown as { getTypeOfSymbol(symbol: AsyncSymbol): Promise<Type | undefined> }, "getTypeOfSymbol").mockImplementationOnce(async () => {

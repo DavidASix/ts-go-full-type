@@ -60,7 +60,7 @@ describe("theme token palette", () => {
       sourceUri: "file:///workspace/types.ts",
       project: "/workspace/tsconfig.json",
       generation: 1,
-      root: { viewNodeId: "", text: "string", state: "leaf", layout: "atom" },
+      root: { viewNodeId: "", text: "string", content: { state: "leaf", layout: "atom" }},
     };
     const html = renderHtml(
       { kind: "success", result, rawText: "" },

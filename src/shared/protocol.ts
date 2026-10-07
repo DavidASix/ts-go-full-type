@@ -6,18 +6,21 @@ export interface TypeRenderEdge {
   readonly role?: "typeArgument";
   readonly label?: string;
   readonly optional?: boolean;
+  readonly readonly?: boolean;
   readonly annotation?: string;
   readonly node: TypeRenderNode;
 }
 
+export type NodeContent =
+  | { readonly state: "leaf" | "collapsed" | "recursive"; readonly layout: "atom"; readonly children?: never; readonly expressionText?: never }
+  | { readonly state: "expanded"; readonly layout: Exclude<NodeLayout, "atom">; readonly children: readonly TypeRenderEdge[]; readonly expressionText?: string };
+
+/** Renderers consume the graph's presentation; only TypeGraph replaces its content. */
 export interface TypeRenderNode {
   readonly viewNodeId: string;
   readonly text: string;
   readonly typeKind?: NodeLayout | "function";
-  state: ViewNodeState;
-  layout: NodeLayout;
-  children?: readonly TypeRenderEdge[];
-  expressionText?: string;
+  readonly content: NodeContent;
   readonly provenance?: string;
   readonly note?: string;
 }

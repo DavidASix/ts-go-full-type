@@ -16,21 +16,21 @@ export function buildTypeTree(result: CompleteTypeResult): TypeTreeItem {
 }
 
 function item(node: TypeRenderNode, label: string, path: string): TypeTreeItem {
-  const kind = node.typeKind ?? node.layout;
+  const kind = node.typeKind ?? node.content.layout;
   const icon = kind === "object" ? "{}" : kind === "array" ? "[]" : kind === "tuple" ? "[·]"
     : kind === "union" ? "∪" : kind === "intersection" ? "∩" : kind === "function" ? "ƒ"
     : /^(number|bigint|\d)/.test(node.text) ? "#"
     : /^(string|["'`])/.test(node.text) ? "abc" : "◇";
   const iconClass = kind === "atom" ? "primitive" : kind;
   const summary = node.text === label ? kindLabel(kind) : summarize(node.text, kind);
-  const children = node.state !== "expanded" ? [] : (node.children ?? []).map((edge, index) =>
+  const children = node.content.state !== "expanded" ? [] : (node.content.children ?? []).map((edge, index) =>
     item(edge.node, edgeLabel(edge, node, index), `${path}:${index}`));
   return { id: node.viewNodeId || path, label, summary, icon, iconClass, node, children };
 }
 
 function edgeLabel(edge: TypeRenderEdge, parent: TypeRenderNode, index: number): string {
-  if (edge.label !== undefined) return `${edge.label}${edge.optional ? "?" : ""}`;
-  switch (parent.layout) {
+  if (edge.label !== undefined) return `${edge.readonly ? "readonly " : ""}${edge.label}${edge.optional ? "?" : ""}`;
+  switch (parent.content.layout) {
     case "array": return "element";
     case "tuple": return `[${index}]`;
     case "union": return `member ${index + 1}`;

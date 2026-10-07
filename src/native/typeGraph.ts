@@ -9,7 +9,8 @@ import {
 import type { Node } from "typescript/unstable/ast";
 import { settleQueries } from "../shared/async";
 import { UserVisibleError } from "../shared/errors";
-import type { NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
+import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
+import { isReadonlyProperty } from "./propertyModifiers";
 import { hasPresentationTruncation } from "./truncation";
 
 const PRINT_FLAGS = NodeBuilderFlags.NoTruncation |
@@ -18,13 +19,15 @@ const MAX_NODES = 5_000;
 const MAX_OUTPUT = 2_000_000;
 
 interface Materialized {
-  readonly layout: NodeLayout;
+  readonly layout: Exclude<NodeLayout, "atom">;
   readonly children: readonly TypeRenderEdge[];
   readonly expressionText?: string;
 }
 
+type GraphNode = Omit<TypeRenderNode, "content"> & { content: NodeContent };
+
 interface RegistryEntry {
-  readonly node: TypeRenderNode;
+  readonly node: GraphNode;
   readonly load: () => Promise<Materialized>;
   readonly loadBoundary?: () => Promise<Materialized>;
 }
@@ -32,7 +35,7 @@ interface RegistryEntry {
 export class TypeGraph {
   private readonly registry = new Map<string, RegistryEntry>();
   private nextNodeId = 1;
-  private root: TypeRenderNode | undefined;
+  private root: GraphNode | undefined;
   private rootType: Type | undefined;
   private pending: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -48,7 +51,7 @@ export class TypeGraph {
     this.registry.clear();
     this.rootType = type;
     this.root = await this.createChild(type, []);
-    if (this.root.state === "collapsed") {
+    if (this.root.content.state === "collapsed") {
       await this.expandEntry(this.getEntry(this.root.viewNodeId), true);
     }
     this.assertWithinLimits();
@@ -58,7 +61,7 @@ export class TypeGraph {
   public toggle(viewNodeId: string): Promise<void> {
     return this.enqueue(async () => {
       const entry = this.getEntry(viewNodeId);
-      if (entry.node.state === "expanded") {
+      if (entry.node.content.state === "expanded") {
         this.collapseEntry(entry);
       } else {
         await this.expandEntry(entry);
@@ -69,7 +72,7 @@ export class TypeGraph {
   public expandFrontier(): Promise<void> {
     return this.enqueue(async () => {
       const frontier = [...this.registry.values()].filter(
-        (entry) => entry.node.state === "collapsed" && this.isVisible(entry.node),
+        (entry) => entry.node.content.state === "collapsed" && this.isVisible(entry.node),
       );
       const expanded: RegistryEntry[] = [];
       try {
@@ -130,21 +133,15 @@ export class TypeGraph {
     const beforeIds = new Set(this.registry.keys());
     try {
       const materialized = await entry.load();
-      entry.node.state = "expanded";
-      entry.node.layout = materialized.layout;
-      entry.node.children = materialized.children;
-      if (materialized.expressionText !== undefined) entry.node.expressionText = materialized.expressionText;
+      entry.node.content = { state: "expanded", ...materialized };
       // Keep the complete immediate root union shape visible on first focus.
-      if (initial && (entry.node.layout === "union" || entry.node.layout === "intersection")) {
+      if (initial && (entry.node.content.layout === "union" || entry.node.content.layout === "intersection")) {
         for (const edge of materialized.children) {
-          if (edge.node.state === "collapsed") {
+          if (edge.node.content.state === "collapsed") {
             const child = this.getEntry(edge.node.viewNodeId);
             const shape = await (child.loadBoundary ?? child.load)();
             if (shape.layout === "object" || shape.layout === "details") {
-              child.node.state = "expanded";
-              child.node.layout = shape.layout;
-              child.node.children = shape.children;
-              if (shape.expressionText !== undefined) child.node.expressionText = shape.expressionText;
+              child.node.content = { state: "expanded", ...shape };
             } else {
               this.collectIds(shape.children).forEach((id) => this.registry.delete(id));
             }
@@ -153,10 +150,7 @@ export class TypeGraph {
       }
       this.assertWithinLimits();
     } catch (error) {
-      entry.node.state = "collapsed";
-      entry.node.layout = "atom";
-      delete entry.node.children;
-      delete entry.node.expressionText;
+      entry.node.content = { state: "collapsed", layout: "atom" };
       for (const id of this.registry.keys()) {
         if (!beforeIds.has(id)) this.registry.delete(id);
       }
@@ -165,11 +159,8 @@ export class TypeGraph {
   }
 
   private collapseEntry(entry: RegistryEntry): void {
-    for (const id of this.collectIds(entry.node.children)) this.registry.delete(id);
-    entry.node.state = "collapsed";
-    entry.node.layout = "atom";
-    delete entry.node.children;
-    delete entry.node.expressionText;
+    for (const id of this.collectIds(entry.node.content.children)) this.registry.delete(id);
+    entry.node.content = { state: "collapsed", layout: "atom" };
   }
 
   private async materialize(type: Type, ancestors: readonly number[]): Promise<Materialized> {
@@ -198,6 +189,7 @@ export class TypeGraph {
       children.push({
         label: quotePropertyName(property.name),
         optional: Boolean(property.flags & SymbolFlags.Optional),
+        readonly: await isReadonlyProperty(property, (operation) => this.query(operation)),
         node: propertyType === undefined ? this.leaf("unknown") : await this.createChild(propertyType, ancestors),
       });
     }
@@ -279,9 +271,9 @@ export class TypeGraph {
     return children;
   }
 
-  private async createChild(type: Type, ancestors: readonly number[]): Promise<TypeRenderNode> {
+  private async createChild(type: Type, ancestors: readonly number[]): Promise<GraphNode> {
     const text = await this.collapsedDisplay(type);
-    if (ancestors.includes(type.id)) return { ...this.leaf(text), state: "recursive" };
+    if (ancestors.includes(type.id)) return { ...this.leaf(text), content: { state: "recursive", layout: "atom" } };
     if (!(await this.isExpandable(type))) return this.leaf(await this.print(type));
     const branchAncestors = [...ancestors, type.id];
     const callable = type.isObjectType() &&
@@ -304,14 +296,14 @@ export class TypeGraph {
     return node;
   }
 
-  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "function"): TypeRenderNode {
-    const node: TypeRenderNode = { viewNodeId: this.allocateId(), text, typeKind, state: "collapsed", layout: "atom" };
+  private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "function"): GraphNode {
+    const node: GraphNode = { viewNodeId: this.allocateId(), text, typeKind, content: { state: "collapsed", layout: "atom" }};
     this.registry.set(node.viewNodeId, { node, load });
     return node;
   }
 
-  private leaf(text: string): TypeRenderNode {
-    return { viewNodeId: this.allocateId(), text, state: "leaf", layout: "atom" };
+  private leaf(text: string): GraphNode {
+    return { viewNodeId: this.allocateId(), text, content: { state: "leaf", layout: "atom" }};
   }
 
   private allocateId(): string {
@@ -377,7 +369,7 @@ export class TypeGraph {
   private collectIds(edges: readonly TypeRenderEdge[] | undefined): string[] {
     const ids: string[] = [];
     for (const edge of edges ?? []) {
-      ids.push(edge.node.viewNodeId, ...this.collectIds(edge.node.children));
+      ids.push(edge.node.viewNodeId, ...this.collectIds(edge.node.content.children));
     }
     return ids;
   }
@@ -391,15 +383,15 @@ export class TypeGraph {
 }
 
 function containsVisibleNode(current: TypeRenderNode, target: TypeRenderNode): boolean {
-  return current === target || (current.state === "expanded" &&
-    (current.children ?? []).some((edge) => containsVisibleNode(edge.node, target)));
+  return current === target || (current.content.state === "expanded" &&
+    (current.content.children ?? []).some((edge) => containsVisibleNode(edge.node, target)));
 }
 
 function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
   let nodes = 1;
-  let size = node.text.length + (node.expressionText?.length ?? 0);
-  if (node.state === "expanded") {
-    for (const edge of node.children ?? []) {
+  let size = node.text.length + (node.content.expressionText?.length ?? 0);
+  if (node.content.state === "expanded") {
+    for (const edge of node.content.children ?? []) {
       const child = measureTree(edge.node);
       nodes += child.nodes;
       size += (edge.label?.length ?? 0) + child.size;

@@ -23,7 +23,7 @@ function result(generation: number): CompleteTypeResult {
     sourceUri: "file:///types.ts",
     project: "/tsconfig.json",
     generation,
-    root: { viewNodeId: "", text: "string", state: "expanded", layout: "atom", children: [] },
+    root: { viewNodeId: "", text: "string", content: { state: "leaf", layout: "atom" }},
   };
 }
 

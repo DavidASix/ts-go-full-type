@@ -107,16 +107,16 @@ function renderState(state: ViewState, wordWrap: boolean): string {
 }
 
 function renderTreeItem(item: TypeTreeItem, level: number, position: number, size: number): string {
-  const expandable = item.node.state === "collapsed" || item.node.state === "expanded";
-  const expanded = item.node.state === "expanded";
+  const expandable = item.node.content.state === "collapsed" || item.node.content.state === "expanded";
+  const expanded = item.node.content.state === "expanded";
   const state = expandable ? ` aria-expanded="${expanded}"` : "";
   const disclosure = expandable ? expanded ? "▾" : "▸" : "";
-  const recursive = item.node.state === "recursive"
+  const recursive = item.node.content.state === "recursive"
     ? `<span class="recursive" aria-label="Recursive reference" title="Recursive reference: this type already appears on this branch">↩</span>` : "";
   const children = item.children.length === 0 ? "" : `<ul class="tree-group" role="group">${item.children.map((child, index) => renderTreeItem(child, level + 1, index + 1, item.children.length)).join("")}</ul>`;
   const note = item.node.note === undefined ? "" : `<div class="node-note">${escapeHtml(item.node.note)}</div>`;
-  const ariaLabel = `${item.label}: ${item.summary}${item.node.state === "recursive" ? ", recursive reference" : ""}`;
-  return `<li role="none"><div class="tree-item${level === 1 ? " tree-root" : ""}" role="treeitem" tabindex="${level === 1 ? "0" : "-1"}" data-node-id="${escapeAttribute(item.id)}" aria-level="${level}" aria-posinset="${position}" aria-setsize="${size}" aria-label="${escapeAttribute(ariaLabel)}"${state}><div class="tree-row"${expandable ? " data-expandable" : ""} title="${escapeAttribute(item.node.expressionText ?? item.node.text)}"><span class="disclosure" aria-hidden="true">${disclosure}</span><span class="tree-icon icon-${item.iconClass}" aria-hidden="true">${item.icon}</span><span class="tree-content"><span class="tree-label">${escapeHtml(item.label)}</span> <span class="tree-description">${tokenizeTypeScript(item.summary).map(renderSegment).join("")}</span>${recursive}</span></div>${note}${children}</div></li>`;
+  const ariaLabel = `${item.label}: ${item.summary}${item.node.content.state === "recursive" ? ", recursive reference" : ""}`;
+  return `<li role="none"><div class="tree-item${level === 1 ? " tree-root" : ""}" role="treeitem" tabindex="${level === 1 ? "0" : "-1"}" data-node-id="${escapeAttribute(item.id)}" aria-level="${level}" aria-posinset="${position}" aria-setsize="${size}" aria-label="${escapeAttribute(ariaLabel)}"${state}><div class="tree-row"${expandable ? " data-expandable" : ""} title="${escapeAttribute(item.node.content.expressionText ?? item.node.text)}"><span class="disclosure" aria-hidden="true">${disclosure}</span><span class="tree-icon icon-${item.iconClass}" aria-hidden="true">${item.icon}</span><span class="tree-content"><span class="tree-label">${escapeHtml(item.label)}</span> <span class="tree-description">${tokenizeTypeScript(item.summary).map(renderSegment).join("")}</span>${recursive}</span></div>${note}${children}</div></li>`;
 }
 
 function renderSegment(segment: CodeSegment): string {

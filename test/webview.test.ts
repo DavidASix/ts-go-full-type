@@ -4,10 +4,10 @@ import { webviewHarness } from "./support/webviewHarness";
 
 export const state: ViewState = { kind: "success", rawText: "", result: {
   name: "Example", sourceUri: "file:///types.ts", project: "/tsconfig.json", compilerVersion: "7.0.2", generation: 1,
-  root: { viewNodeId: "root", text: "Example", state: "expanded", layout: "object", children: [
-    { label: "nested", node: { viewNodeId: "nested", text: "Nested", state: "collapsed", layout: "atom" } },
-    { label: "value", node: { viewNodeId: "value", text: "string", state: "leaf", layout: "atom" } },
-  ] },
+  root: { viewNodeId: "root", text: "Example", content: { state: "expanded", layout: "object", children: [
+    { label: "nested", node: { viewNodeId: "nested", text: "Nested", content: { state: "collapsed", layout: "atom" }} },
+    { label: "value", node: { viewNodeId: "value", text: "string", content: { state: "leaf", layout: "atom" }} },
+  ] }},
 } };
 
 describe("webview tree interactions", () => {

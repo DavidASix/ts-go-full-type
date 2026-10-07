@@ -3,6 +3,11 @@ import { JSDOM } from "jsdom";
 import { renderHtml, renderViewContent, renderPaletteProperties } from "../../src/sidebar/renderHtml";
 import type { ViewState } from "../../src/shared/protocol";
 
+/**
+ * Run the actual webview script in a DOM with a controllable VS Code message transport.
+ * @param state Resolution or disclosure state to present.
+ * @param saved Previously persisted webview navigation state.
+ */
 export async function webviewHarness(state: ViewState, saved?: unknown) {
   let persisted = saved;
   const messages: unknown[] = [];

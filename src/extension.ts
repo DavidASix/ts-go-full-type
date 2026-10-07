@@ -23,6 +23,10 @@ export interface FullTypeViewerTestingAPI {
   toggle(viewNodeId: string): Promise<void>;
 }
 
+/**
+ * Register the sidebar, editor tracking, and contributed commands for this extension session.
+ * @param context VS Code extension context that owns subscriptions and persisted preferences.
+ */
 export function activate(context: vscode.ExtensionContext): FullTypeViewerTestingAPI {
   const connection = new NativeConnection();
   const provider = new CompleteTypeProvider(connection);
@@ -37,6 +41,10 @@ export function activate(context: vscode.ExtensionContext): FullTypeViewerTestin
   focus = new FocusController(provider, expansion, view);
   runtime = { focus, expansion, provider, connection, view };
 
+  /**
+   * Persist the wrapping preference and update the view and command context together.
+   * @param enabled Whether long type rows should wrap.
+   */
   const setWordWrap = async (enabled: boolean): Promise<void> => {
     view.setWordWrap(enabled);
     await Promise.all([
@@ -65,6 +73,9 @@ export function activate(context: vscode.ExtensionContext): FullTypeViewerTestin
   };
 }
 
+/**
+ * Drain graph and connection work before releasing the extension runtime.
+ */
 export async function deactivate(): Promise<void> {
   const current = runtime;
   runtime = undefined;

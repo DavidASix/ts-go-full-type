@@ -15,6 +15,12 @@ export function buildTypeTree(result: CompleteTypeResult): TypeTreeItem {
   return item(result.root, result.name, `root:${result.generation}`);
 }
 
+/**
+ * Build one visible tree row and preserve child identities and relationship labels.
+ * @param node Syntax or presentation node being processed.
+ * @param label Property or relationship label to display or locate.
+ * @param path Stable fallback identity for nodes without graph IDs.
+ */
 function item(node: TypeRenderNode, label: string, path: string): TypeTreeItem {
   const kind = node.typeKind ?? node.content.layout;
   const icon = kind === "object" ? "{}" : kind === "array" ? "[]" : kind === "tuple" ? "[·]"
@@ -28,6 +34,12 @@ function item(node: TypeRenderNode, label: string, path: string): TypeTreeItem {
   return { id: node.viewNodeId || path, label, summary, icon, iconClass, node, children };
 }
 
+/**
+ * Present property modifiers or the semantic relationship of an unlabeled child.
+ * @param edge Child relationship and its presentation metadata.
+ * @param parent Containing node that determines the child relationship label.
+ * @param index Zero-based position of the child relationship.
+ */
 function edgeLabel(edge: TypeRenderEdge, parent: TypeRenderNode, index: number): string {
   if (edge.label !== undefined) return `${edge.readonly ? "readonly " : ""}${edge.label}${edge.optional ? "?" : ""}`;
   switch (parent.content.layout) {
@@ -39,6 +51,11 @@ function edgeLabel(edge: TypeRenderEdge, parent: TypeRenderNode, index: number):
   }
 }
 
+/**
+ * Keep structural rows compact without losing literal whitespace or escape sequences.
+ * @param text Compiler presentation or label charged to the graph budget.
+ * @param kind Compiler token kind or presentation category.
+ */
 function summarize(text: string, kind: string): string {
   // Summarize structural expressions; opening the row reveals their contents.
   // String literals keep their original spaces and escape sequences.

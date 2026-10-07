@@ -7,6 +7,11 @@ const READONLY = 1 << 3;
 const SYNTHETIC_PROPERTY = 1 << 1;
 const MAPPED_PROPERTY = 1 << 18;
 
+/**
+ * Use resolved compiler flags before inspecting accessor or declaration modifiers.
+ * @param symbol Native property symbol with resolved flags and declarations.
+ * @param query Guarded native query executor.
+ */
 export async function isReadonlyProperty(
   symbol: AsyncSymbol,
   query: <T>(operation: () => Promise<T>) => Promise<T>,

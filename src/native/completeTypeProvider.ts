@@ -43,6 +43,10 @@ export class CompleteTypeProvider implements vscode.Disposable {
   private disposal: Promise<void> | undefined;
   private readonly connectionSubscription: vscode.Disposable;
 
+  /**
+   * Initialize ownership and event subscriptions for this component.
+   * @param connection Native client and server lifecycle owner.
+   */
   public constructor(private readonly connection: NativeConnection) {
     this.connectionSubscription = connection.onDidInvalidate(() => {
       this.cancelRequests();
@@ -55,11 +59,19 @@ export class CompleteTypeProvider implements vscode.Disposable {
     });
   }
 
+  /**
+   * Subscribe to invalidation and return a disposable that removes the listener.
+   * @param listener Callback invoked when the current native state becomes invalid.
+   */
   public onDidInvalidate(listener: () => void): vscode.Disposable {
     this.invalidationListeners.add(listener);
     return { dispose: () => { this.invalidationListeners.delete(listener); } };
   }
 
+  /**
+   * Resolve the captured request and discard results superseded by newer focus.
+   * @param request Captured editor text, focus, generation, and cancellation scope.
+   */
   public resolve(request: ResolveRequest): Promise<ResolvedCompleteType | undefined> {
     if (this.disposed) return Promise.reject(new RequestCancelledError());
     this.cancelRequests();
@@ -87,6 +99,9 @@ export class CompleteTypeProvider implements vscode.Disposable {
     return this.disposal ??= this.shutdown();
   }
 
+  /**
+   * Cancel requests and drain outstanding ownership before releasing resources.
+   */
   private async shutdown(): Promise<void> {
     this.disposed = true;
     this.connectionSubscription.dispose();
@@ -104,14 +119,26 @@ export class CompleteTypeProvider implements vscode.Disposable {
     for (const request of this.requests) request.abort();
   }
 
+  /**
+   * Synchronize editor text with the native project and create a snapshot-owned graph session.
+   * @param connected Native API client and its connection generation.
+   * @param request Captured editor text, focus, generation, and cancellation scope.
+   */
   private async resolveConnected(
     connected: ConnectedAPI,
     request: ResolveRequest,
   ): Promise<ResolvedCompleteType | undefined> {
+    /**
+     * Reject work after cancellation or a native connection generation change.
+     */
     const check = () => {
       assertRequestActive(request.signal);
       if (!this.connection.isCurrent(connected)) throw new RequestCancelledError();
     };
+    /**
+     * Check request validity before and after an awaited native query.
+     * @param operation Work to perform while the current owner remains valid.
+     */
     const query = async <T>(operation: () => Promise<T>): Promise<T> => {
       check();
       const value = await operation();
@@ -188,6 +215,10 @@ export class CompleteTypeProvider implements vscode.Disposable {
     }
   }
 
+  /**
+   * Dispose an owned snapshot once, tolerating errors from a lost connection.
+   * @param snapshot Owned snapshot to release after dependent work drains.
+   */
   private async releaseSnapshot(snapshot: Snapshot): Promise<void> {
     if (!this.snapshots.delete(snapshot) || snapshot.isDisposed()) return;
     try { await snapshot.dispose(); }
@@ -195,6 +226,13 @@ export class CompleteTypeProvider implements vscode.Disposable {
   }
 }
 
+/**
+ * Prefer the focused type syntax, then recover through positional and symbol queries.
+ * @param checker Native semantic query API for the selected project.
+ * @param uri Source or theme resource URI.
+ * @param focus Identifier range and any directly associated type syntax.
+ * @param checkActive Guard invoked between queries to reject obsolete work.
+ */
 export async function resolveFocusedType(
   checker: Checker,
   uri: string,
@@ -224,6 +262,13 @@ export async function resolveFocusedType(
   return symbolType ?? locationType ?? positionalType;
 }
 
+/**
+ * Follow import aliases and resolve the selected symbol in its declaration context.
+ * @param checker Native semantic query API for the selected project.
+ * @param selectedSymbol Compiler symbol selected at the focused identifier.
+ * @param focus Identifier range and any directly associated type syntax.
+ * @param checkActive Guard invoked between queries to reject obsolete work.
+ */
 async function resolveSymbolType(
   checker: Checker,
   selectedSymbol: AsyncSymbol,

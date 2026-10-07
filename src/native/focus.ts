@@ -17,6 +17,11 @@ export interface SymbolFocus {
   readonly typeNode?: TypeNode;
 }
 
+/**
+ * Locate an identifier at the cursor without accepting adjacent punctuation.
+ * @param sourceFile Compiler AST containing the editor text.
+ * @param offset Zero-based source offset within the selected identifier.
+ */
 export function findSymbolFocus(sourceFile: SourceFile, offset: number): SymbolFocus | undefined {
   if (offset < 0 || offset >= sourceFile.text.length) {
     return undefined;
@@ -25,6 +30,12 @@ export function findSymbolFocus(sourceFile: SourceFile, offset: number): SymbolF
   return qualifySymbolToken(sourceFile, token, offset);
 }
 
+/**
+ * Capture an identifier range and any directly associated type syntax.
+ * @param sourceFile Compiler AST containing the editor text.
+ * @param token Compiler token under the selected source offset.
+ * @param offset Zero-based source offset within the selected identifier.
+ */
 export function qualifySymbolToken(
   sourceFile: SourceFile,
   token: ReturnType<typeof getTokenAtPosition>,
@@ -46,6 +57,10 @@ export function qualifySymbolToken(
   };
 }
 
+/**
+ * Associate alias names and qualified references with their own type nodes.
+ * @param token Compiler token under the selected source offset.
+ */
 function resolutionTypeNodeForToken(token: Node): { readonly typeNode?: TypeNode } {
   if (isTypeAliasDeclaration(token.parent) && token.parent.name === token) {
     return { typeNode: token.parent.type };

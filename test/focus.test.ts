@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { SyntaxKind, type Node, type SourceFile } from "typescript/unstable/ast";
 import { qualifySymbolToken } from "../src/native/focus";
 
+/**
+ * Build an alias declaration fixture with an identifier at its actual source offset.
+ * @param text Compiler presentation or label charged to the graph budget.
+ * @param name Identifier or relationship label being selected.
+ */
 function aliasToken(text: string, name: string): { sourceFile: SourceFile; token: Node } {
   const start = text.indexOf(name);
   const sourceFile = { text } as SourceFile;

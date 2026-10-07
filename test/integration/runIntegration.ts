@@ -4,6 +4,9 @@ import { basename, resolve } from "node:path";
 import { runTests } from "@vscode/test-electron";
 import { resolveIntegrationEnvironment } from "./environment";
 
+/**
+ * Launch the extension-host suite with isolated fixture and extension directories.
+ */
 async function main(): Promise<void> {
   const repository = process.cwd();
   const environment = await resolveIntegrationEnvironment();

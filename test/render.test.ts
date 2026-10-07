@@ -161,6 +161,9 @@ describe("rendering", () => {
   });
 });
 
+/**
+ * Provide stable webview resource URIs and a nonce for rendering assertions.
+ */
 function resources() {
   return {
     cspSource: "vscode-webview:",

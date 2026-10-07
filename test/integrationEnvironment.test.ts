@@ -8,6 +8,10 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "full-type-environment-")); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
+/**
+ * Create a temporary native extension manifest for environment validation tests.
+ * @param version Document version required for cache reuse.
+ */
 async function installation(version = "1.0.1") {
   const executable = join(root, "code-insiders");
   const extension = join(root, "native-preview");

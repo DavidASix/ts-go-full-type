@@ -62,6 +62,10 @@ export class TypeGraph {
     return buildTypeExpression(syntax, children, (node) => this.query(() => this.project.emitter.printNode(node)));
   }
 
+  /**
+   * Create the initial shallow graph and expose immediate root union member shapes.
+   * @param type Native semantic type to display.
+   */
   public async createRoot(type: Type): Promise<TypeRenderNode> {
     this.registry.clear();
     this.budget = new GraphBudget(this.limits);
@@ -73,6 +77,10 @@ export class TypeGraph {
     return this.root;
   }
 
+  /**
+   * Serialize one disclosure change against the graph registry.
+   * @param viewNodeId Opaque identity of the visible disclosure node.
+   */
   public toggle(viewNodeId: string): Promise<void> {
     return this.enqueue(async () => {
       const entry = this.getEntry(viewNodeId);
@@ -84,6 +92,9 @@ export class TypeGraph {
     });
   }
 
+  /**
+   * Expand one visible breadth level and roll back the whole level on failure.
+   */
   public expandFrontier(): Promise<void> {
     return this.enqueue(async () => {
       const frontier = this.visibleFrontier();
@@ -100,6 +111,9 @@ export class TypeGraph {
     });
   }
 
+  /**
+   * Restore the initial shallow graph while retaining the published root object.
+   */
   public collapseAll(): Promise<void> {
     return this.enqueue(async () => {
       if (this.root === undefined || this.rootType === undefined) return;
@@ -120,12 +134,18 @@ export class TypeGraph {
     });
   }
 
+  /**
+   * Forget all registered nodes and the root type owned by this graph.
+   */
   private clear(): void {
     this.registry.clear();
     this.root = undefined;
     this.rootType = undefined;
   }
 
+  /**
+   * Drain queued graph operations before releasing snapshot-dependent handles.
+   */
   public async disposeAsync(): Promise<void> {
     this.disposed = true;
     // A snapshot must outlive every operation using its checker and type handles.
@@ -133,6 +153,10 @@ export class TypeGraph {
     this.clear();
   }
 
+  /**
+   * Serialize graph mutations and reset their budgets from the current visible tree.
+   * @param operation Work to perform while the current owner remains valid.
+   */
   private enqueue(operation: () => Promise<void>): Promise<void> {
     const result = this.pending.then(async () => {
       this.assertUsable();
@@ -144,6 +168,11 @@ export class TypeGraph {
     return result;
   }
 
+  /**
+   * Materialize a branch atomically and unregister partial descendants on failure.
+   * @param entry Registered graph branch and its deferred loader.
+   * @param initial Whether this is the initial root materialization.
+   */
   private async expandEntry(entry: RegistryEntry, initial = false): Promise<void> {
     const beforeIds = new Set(this.registry.keys());
     try {
@@ -177,11 +206,20 @@ export class TypeGraph {
     }
   }
 
+  /**
+   * Remove descendant handles before returning a branch to its collapsed state.
+   * @param entry Registered graph branch and its deferred loader.
+   */
   private collapseEntry(entry: RegistryEntry): void {
     for (const id of this.collectIds(entry.node.content.children)) this.registry.delete(id);
     entry.node.content = { state: "collapsed", layout: "atom" };
   }
 
+  /**
+   * Select semantic children and presentation syntax for the compiler type category.
+   * @param type Native semantic type to display.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async materialize(type: Type, ancestors: readonly number[]): Promise<Materialized> {
     if (type.isUnionType() || type.isIntersectionType()) {
       return {
@@ -205,6 +243,11 @@ export class TypeGraph {
     return { layout: "details", children, expressionText: await this.print(type), expression: await this.expression(type, children) };
   }
 
+  /**
+   * Expose properties, signatures, indexes, and generic arguments through checker APIs.
+   * @param type Native semantic type to display.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async materializeObject(type: Type, ancestors: readonly number[]): Promise<Materialized> {
     const children: TypeRenderEdge[] = [];
     for (const property of await this.query(() => this.checker.getPropertiesOfType(type))) {
@@ -246,6 +289,11 @@ export class TypeGraph {
       ...(hasSignatures ? { expressionText: await this.print(type), expression: await this.expression(type, children) } : {}) };
   }
 
+  /**
+   * Expose signature parameters, return types, and predicates in compiler order.
+   * @param signature Native callable or construct signature.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async materializeSignature(signature: Signature, ancestors: readonly number[]): Promise<Materialized> {
     const children: TypeRenderEdge[] = [];
     for (const parameter of await this.query(() => signature.getTypeParameters())) {
@@ -271,6 +319,11 @@ export class TypeGraph {
 
   }
 
+  /**
+   * Expose semantic operands of deferred and symbolic type operations.
+   * @param type Native semantic type to display.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async typeDetails(type: Type, ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
     const values: Array<readonly [string, Type]> = [];
     if (type.isTypeParameter()) {
@@ -309,12 +362,22 @@ export class TypeGraph {
     });
   }
 
+  /**
+   * Allocate ordered child edges from native semantic types.
+   * @param types Ordered native types for the child relationships.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async createChildren(types: readonly Type[], ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
     const children: TypeRenderEdge[] = [];
     for (const type of types) children.push(this.edge({ node: await this.createChild(type, ancestors) }));
     return children;
   }
 
+  /**
+   * Allocate a leaf or disclosure node while terminating cycles along the current branch.
+   * @param type Native semantic type to display.
+   * @param ancestors Native type identities along the current branch for cycle detection.
+   */
   private async createChild(type: Type, ancestors: readonly number[]): Promise<GraphNode> {
     this.budget.assertCanAddNode();
     const text = await this.collapsedDisplay(type);
@@ -341,6 +404,12 @@ export class TypeGraph {
     return node;
   }
 
+  /**
+   * Allocate a disclosure identity and retain its deferred materialization operation.
+   * @param text Compiler presentation or label charged to the graph budget.
+   * @param load Deferred loader for the registered branch.
+   * @param typeKind Semantic category used for the row icon and summary.
+   */
   private register(text: string, load: () => Promise<Materialized>, typeKind: NodeLayout | "function" = "function"): GraphNode {
     this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, typeKind, content: { state: "collapsed", layout: "atom" }};
@@ -348,6 +417,10 @@ export class TypeGraph {
     return node;
   }
 
+  /**
+   * Allocate a terminal presentation node within the graph budget.
+   * @param text Compiler presentation or label charged to the graph budget.
+   */
   private leaf(text: string): GraphNode {
     this.budget.addNode(text);
     return { viewNodeId: this.allocateId(), text, content: { state: "leaf", layout: "atom" }};
@@ -357,6 +430,10 @@ export class TypeGraph {
     return `${this.generation}:${this.nextNodeId++}`;
   }
 
+  /**
+   * Check whether the native type exposes meaningful semantic descendants.
+   * @param type Native semantic type to display.
+   */
   private async isExpandable(type: Type): Promise<boolean> {
     if (type.isUnionType() || type.isIntersectionType() || type.isIndexedAccessType() ||
       type.isIndexType() || type.isConditionalType() || type.isSubstitutionType() ||
@@ -380,6 +457,10 @@ export class TypeGraph {
     return this.query(() => type.isTypeReference() ? this.checker.getTypeArguments(type) : type.getAliasTypeArguments());
   }
 
+  /**
+   * Check request validity before and after an awaited native query.
+   * @param operation Work to perform while the current owner remains valid.
+   */
   private async query<T>(operation: () => Promise<T>): Promise<T> {
     this.assertUsable();
     this.checkRequest();
@@ -393,6 +474,10 @@ export class TypeGraph {
     if (this.disposed) throw new UserVisibleError("This type session has been disposed.");
   }
 
+  /**
+   * Obtain complete compiler text and reject truncated or oversized presentations.
+   * @param type Native semantic type to display.
+   */
   private async print(type: Type): Promise<string> {
     const text = await this.query(() => this.checker.typeToString(type, this.enclosingDeclaration, PRINT_FLAGS));
     this.budget.assertTextFits(text);
@@ -402,6 +487,10 @@ export class TypeGraph {
     return text;
   }
 
+  /**
+   * Preserve alias names and compiler-rendered generic arguments until expansion.
+   * @param type Native semantic type to display.
+   */
   private async collapsedDisplay(type: Type): Promise<string> {
     const alias = await this.query(() => type.getAliasSymbol());
     if (alias === undefined) return this.print(type);
@@ -410,12 +499,19 @@ export class TypeGraph {
     return arguments_.length === 0 ? alias.name : `${alias.name}<${argumentText.join(", ")}>`;
   }
 
+  /**
+   * Reject disclosure requests whose identities were removed by a newer graph shape.
+   * @param viewNodeId Opaque identity of the visible disclosure node.
+   */
   private getEntry(viewNodeId: string): RegistryEntry {
     const entry = this.registry.get(viewNodeId);
     if (entry === undefined) throw new UserVisibleError("This expansion request is obsolete. Refresh the type and try again.");
     return entry;
   }
 
+  /**
+   * Find collapsed nodes reachable through currently expanded branches.
+   */
   private visibleFrontier(): RegistryEntry[] {
     const frontier: RegistryEntry[] = [];
     const stack = this.root === undefined ? [] : [this.root as TypeRenderNode];
@@ -429,11 +525,19 @@ export class TypeGraph {
     return frontier;
   }
 
+  /**
+   * Charge relationship labels and annotations against the presentation budget.
+   * @param edge Child relationship and its presentation metadata.
+   */
   private edge(edge: TypeRenderEdge): TypeRenderEdge {
     this.budget.addText((edge.label ?? "") + (edge.annotation ?? ""));
     return edge;
   }
 
+  /**
+   * Gather descendant registry identities for collapse and rollback cleanup.
+   * @param edges Visible child relationships whose identities should be collected.
+   */
   private collectIds(edges: readonly TypeRenderEdge[] | undefined): string[] {
     const ids: string[] = [];
     for (const edge of edges ?? []) {
@@ -444,6 +548,10 @@ export class TypeGraph {
 
 }
 
+/**
+ * Count nodes and UTF-8 presentation bytes in the currently retained graph.
+ * @param node Syntax or presentation node being processed.
+ */
 function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
   let nodes = 1;
   let size = Buffer.byteLength(node.text + (node.content.expressionText ?? "") + expressionText(node.content.expression ?? []), "utf8");

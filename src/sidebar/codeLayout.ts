@@ -57,6 +57,10 @@ const OPERATOR_TOKENS = new Set<SyntaxKind>([
   SyntaxKind.EqualsToken,
 ]);
 
+/**
+ * Build metadata and a copyable TypeScript declaration from the visible graph.
+ * @param result Successful type result to render or serialize.
+ */
 export function buildCompleteTypeLayout(result: CompleteTypeResult): CompleteTypeLayout {
   const metadata = [
     commentLine(`// TypeScript ${result.compilerVersion}`),
@@ -75,6 +79,10 @@ export function buildCompleteTypeLayout(result: CompleteTypeResult): CompleteTyp
   return { metadata, code: [declaration, ...expression] };
 }
 
+/**
+ * Classify compiler tokens for highlighting while preserving their original text.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function tokenizeTypeScript(value: string): readonly CodeSegment[] {
   const scanner = createScanner(false, undefined, value);
   const scanned: Array<{ kind: SyntaxKind; text: string }> = [];
@@ -130,6 +138,10 @@ export function tokenizeTypeScript(value: string): readonly CodeSegment[] {
   });
 }
 
+/**
+ * Join layout segments and indentation into the copied TypeScript representation.
+ * @param lines Rendered lines whose indentation and segments should be serialized.
+ */
 export function serializeText(lines: readonly CodeLine[]): string {
   return lines
     .map((entry) => " ".repeat(entry.indentColumns) + entry.segments.map(segmentText).join(""))
@@ -140,6 +152,11 @@ export function renderNodeLines(node: TypeRenderNode, depth: number): CodeLine[]
   return renderNode(node, depth);
 }
 
+/**
+ * Render one graph node according to its current disclosure or recursion state.
+ * @param node Syntax or presentation node being processed.
+ * @param depth Nesting depth used to indent the containing expression.
+ */
 function renderNode(node: TypeRenderNode, depth: number): MutableCodeLine[] {
   const baseIndent = depth * 2;
   if (node.content.state === "recursive") {
@@ -167,6 +184,11 @@ function renderNode(node: TypeRenderNode, depth: number): MutableCodeLine[] {
   return lines;
 }
 
+/**
+ * Dispatch expanded nodes to the renderer for their semantic layout.
+ * @param node Syntax or presentation node being processed.
+ * @param depth Nesting depth used to indent the containing expression.
+ */
 function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
   const children = node.content.children ?? [];
   switch (node.content.layout) {
@@ -200,6 +222,12 @@ function renderExpression(node: TypeRenderNode, depth: number): MutableCodeLine[
   return compilerLines(value, depth * 2);
 }
 
+/**
+ * Render visible property edges and preserve modifiers and annotations.
+ * @param children Ordered semantic child relationships to render.
+ * @param depth Nesting depth used to indent the containing expression.
+ * @param provenance Optional source annotation for the displayed object.
+ */
 function renderObject(
   children: readonly TypeRenderEdge[],
   depth: number,
@@ -232,6 +260,12 @@ function renderObject(
   return lines;
 }
 
+/**
+ * Join child expressions with union or intersection operators at the containing indentation.
+ * @param children Ordered semantic child relationships to render.
+ * @param operator Union or intersection operator between child expressions.
+ * @param depth Nesting depth used to indent the containing expression.
+ */
 function renderJoined(
   children: readonly TypeRenderEdge[],
   operator: "|" | "&",
@@ -250,6 +284,13 @@ function renderJoined(
   return lines;
 }
 
+/**
+ * Wrap the visible element expression while preserving mutable or readonly array semantics.
+ * @param children Ordered semantic child relationships to render.
+ * @param fallback Collapsed compiler text used when no element edge is available.
+ * @param depth Nesting depth used to indent the containing expression.
+ * @param readonly Whether the array wrapper must preserve readonly semantics.
+ */
 function renderArray(children: readonly TypeRenderEdge[], fallback: string, depth: number, readonly: boolean): MutableCodeLine[] {
   const baseIndent = depth * 2;
   if (children.length === 0) {
@@ -264,6 +305,11 @@ function renderArray(children: readonly TypeRenderEdge[], fallback: string, dept
   return child;
 }
 
+/**
+ * Normalize compiler continuation indentation relative to the containing expression.
+ * @param value Untrusted value to validate or normalize.
+ * @param baseIndent Containing indentation in columns.
+ */
 function compilerLines(value: string, baseIndent: number): MutableCodeLine[] {
   return value.split(/\r?\n/).map((source) => {
     const leading = source.match(/^[ \t]*/)?.[0] ?? "";
@@ -272,12 +318,23 @@ function compilerLines(value: string, baseIndent: number): MutableCodeLine[] {
   });
 }
 
+/**
+ * Append a compiler notice without changing the rendered type expression.
+ * @param lines Rendered lines whose indentation and segments should be serialized.
+ * @param note Optional compiler notice appended to the expression.
+ * @param indentColumns Indentation in columns for the appended note.
+ */
 function appendNote(lines: MutableCodeLine[], note: string | undefined, indentColumns: number): void {
   if (note !== undefined) {
     lines.push(line(indentColumns, token(`/* Note: ${oneLine(note)} */`, "comment")));
   }
 }
 
+/**
+ * Distinguish property keys from type tokens by their surrounding syntax.
+ * @param tokens Significant scanner tokens and their source positions.
+ * @param position Token or sibling position used for classification or accessibility.
+ */
 function isPropertyPosition(
   tokens: ReadonlyArray<{ readonly entry: { readonly kind: SyntaxKind }; readonly index: number }>,
   position: number | undefined,
@@ -296,6 +353,10 @@ function isPropertyToken(kind: SyntaxKind): boolean {
   return kind === SyntaxKind.Identifier || kind === SyntaxKind.StringLiteral || kind === SyntaxKind.NumericLiteral;
 }
 
+/**
+ * Recognize literal and template tokens that should receive string highlighting.
+ * @param kind Compiler token kind or presentation category.
+ */
 function isStringToken(kind: SyntaxKind): boolean {
   return kind === SyntaxKind.StringLiteral ||
     kind === SyntaxKind.NoSubstitutionTemplateLiteral ||
@@ -304,6 +365,10 @@ function isStringToken(kind: SyntaxKind): boolean {
     kind === SyntaxKind.TemplateTail;
 }
 
+/**
+ * Identify whitespace and comments excluded from token-neighbor classification.
+ * @param kind Compiler token kind or presentation category.
+ */
 function isTrivia(kind: SyntaxKind): boolean {
   return kind === SyntaxKind.WhitespaceTrivia ||
     kind === SyntaxKind.NewLineTrivia ||
@@ -311,6 +376,10 @@ function isTrivia(kind: SyntaxKind): boolean {
     kind === SyntaxKind.MultiLineCommentTrivia;
 }
 
+/**
+ * Serialize presentation segments without adding disclosure controls to copied text.
+ * @param segment Classified presentation segment to serialize or render.
+ */
 function segmentText(segment: CodeSegment): string {
   switch (segment.kind) {
     case "token":
@@ -343,6 +412,11 @@ function token(value: string, tokenClass: TokenClass): CodeSegment {
   return { kind: "token", text: value, tokenClass };
 }
 
+/**
+ * Create a presentation control tied to the graph node identity.
+ * @param node Syntax or presentation node being processed.
+ * @param state Resolution or disclosure state to present.
+ */
 function disclosure(node: TypeRenderNode, state: "collapsed" | "expanded"): CodeSegment {
   return {
     kind: "disclosure",
@@ -360,6 +434,10 @@ function oneLine(value: string): string {
   return value.replace(/\*\//g, "* /").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Convert source URIs to readable paths while preserving unrecognized values.
+ * @param sourceUri Source URI displayed in the metadata.
+ */
 function displaySource(sourceUri: string): string {
   try {
     const url = new URL(sourceUri);

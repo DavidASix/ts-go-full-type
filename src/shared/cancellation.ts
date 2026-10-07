@@ -17,9 +17,17 @@ export function awaitWhileActive<T>(operation: Promise<T>, signal: AbortSignal):
   });
 }
 
+/**
+ * Delay retry work while allowing cancellation to clear the pending timer.
+ * @param milliseconds Retry delay before another resolution attempt.
+ * @param signal Cancellation scope for the pending operation.
+ */
 export function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
   assertRequestActive(signal);
   return new Promise((resolve, reject) => {
+    /**
+     * Stop the retry timer and reject the pending wait as cancelled.
+     */
     const cancel = () => {
       clearTimeout(timer);
       signal.removeEventListener("abort", cancel);

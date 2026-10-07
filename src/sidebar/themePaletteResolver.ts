@@ -14,6 +14,9 @@ interface ThemeContribution {
   readonly path?: string;
 }
 
+/**
+ * Resolve installed theme contributions and fall back gracefully on unreadable themes.
+ */
 export async function resolveActiveThemeTokenPalette(): Promise<ThemeTokenPalette> {
   const activeTheme = vscode.workspace.getConfiguration("workbench").get<string>("colorTheme");
   if (activeTheme === undefined) {
@@ -31,6 +34,10 @@ export async function resolveActiveThemeTokenPalette(): Promise<ThemeTokenPalett
   }
 }
 
+/**
+ * Find the installed theme file matching the configured theme ID or label.
+ * @param activeTheme Configured installed theme ID or label.
+ */
 function findThemeContribution(activeTheme: string): { readonly uri: vscode.Uri } | undefined {
   for (const extension of vscode.extensions.all) {
     const packageJson = asRecord(extension.packageJSON);
@@ -50,6 +57,11 @@ function findThemeContribution(activeTheme: string): { readonly uri: vscode.Uri 
   return undefined;
 }
 
+/**
+ * Load relative theme includes once per URI and merge local overrides.
+ * @param uri Source or theme resource URI.
+ * @param visited Theme URIs already loaded during this include chain.
+ */
 async function loadTheme(uri: vscode.Uri, visited: Set<string>): Promise<ThemeData> {
   const key = uri.toString();
   if (visited.has(key)) {
@@ -69,6 +81,10 @@ async function loadTheme(uri: vscode.Uri, visited: Set<string>): Promise<ThemeDa
   return mergeThemeData(inherited, local);
 }
 
+/**
+ * Extract supported contribution fields from an untrusted extension manifest.
+ * @param value Untrusted value to validate or normalize.
+ */
 function asThemeContribution(value: unknown): ThemeContribution | undefined {
   const record = asRecord(value);
   if (record === undefined) {
@@ -81,6 +97,10 @@ function asThemeContribution(value: unknown): ThemeContribution | undefined {
   };
 }
 
+/**
+ * Accept non-null objects while rejecting arrays and primitive values.
+ * @param value Untrusted value to validate or normalize.
+ */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>

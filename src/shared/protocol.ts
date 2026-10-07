@@ -54,12 +54,20 @@ export interface WebviewUpdate {
   readonly paletteCss: string;
 }
 
+/**
+ * Validate host render messages before the webview applies their content.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function parseWebviewUpdate(value: unknown): WebviewUpdate | undefined {
   if (!isRecord(value) || value.type !== "render" || typeof value.generation !== "string" ||
     typeof value.html !== "string" || typeof value.paletteCss !== "string") return undefined;
   return { type: "render", generation: value.generation, html: value.html, paletteCss: value.paletteCss };
 }
 
+/**
+ * Accept only supported disclosure and readiness messages with exact payload shapes.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function parseWebviewMessage(value: unknown): WebviewMessage | undefined {
   if (!isRecord(value) || typeof value.type !== "string") {
     return undefined;

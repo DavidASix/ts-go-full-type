@@ -12,12 +12,20 @@ import { deferred } from "./support/deferred";
 function request(uri = "file:///a.ts", signal = new AbortController().signal): ResolveRequest {
   return { uri, text: "wanted text", version: 1, offset: 0, generation: 1, signal };
 }
+/**
+ * Create a disposable native snapshot fixture for ownership and cancellation tests.
+ * @param text Compiler presentation or label charged to the graph budget.
+ */
 function snapshot(text = "outdated text") {
   const source = { text } as SourceFile;
   const project = { program: { getSourceFile: vi.fn(async () => source) } } as unknown as Project;
   const disposed = vi.fn(async () => undefined);
   return { value: { getDefaultProjectForFile: vi.fn(async () => project), isDisposed: () => disposed.mock.calls.length > 0, dispose: disposed } as unknown as Snapshot, disposed, project };
 }
+/**
+ * Build controllable dependencies and event sources for asynchronous lifecycle assertions.
+ * @param updateSnapshot Controlled native snapshot update operation.
+ */
 function setup(updateSnapshot: API<true>["updateSnapshot"]) {
   const api = { updateSnapshot, clearSourceFileCache: vi.fn(), close: vi.fn(async () => undefined) } as unknown as API<true>;
   const native = { onLanguageServerInitialized: (callback: () => void) => { callback(); return { dispose() {} }; }, initializeAPIConnection: async () => "/pipe" } as unknown as NativePreviewExtensionAPI;

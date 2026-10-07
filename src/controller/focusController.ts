@@ -19,6 +19,12 @@ export class FocusController implements vscode.Disposable {
   private cancellation = new AbortController();
   private readonly disposables: vscode.Disposable[] = [];
 
+  /**
+   * Initialize ownership and event subscriptions for this component.
+   * @param provider Native type resolver used for editor focus.
+   * @param expansion Controller that owns the displayed graph session.
+   * @param view Sidebar state and presentation transport.
+   */
   public constructor(
     private readonly provider: Pick<CompleteTypeProvider, "resolve" | "onDidInvalidate">,
     private readonly expansion: Pick<ExpansionController, "replace">,
@@ -43,6 +49,10 @@ export class FocusController implements vscode.Disposable {
     );
   }
 
+  /**
+   * Pause hidden-view work and refresh when the sidebar becomes visible.
+   * @param visible Whether the sidebar can currently display results.
+   */
   public onVisibilityChanged(visible: boolean): void {
     if (!visible) {
       this.invalidate();
@@ -53,6 +63,9 @@ export class FocusController implements vscode.Disposable {
     this.resolveImmediately(false);
   }
 
+  /**
+   * Invalidate the cached symbol and request a fresh semantic resolution.
+   */
   public refresh(): void {
     this.focusCache = undefined;
     this.invalidate();
@@ -60,6 +73,9 @@ export class FocusController implements vscode.Disposable {
     this.resolveImmediately(true);
   }
 
+  /**
+   * Release subscriptions and prevent further work after teardown.
+   */
   public dispose(): void {
     this.disposed = true;
     this.invalidate();
@@ -68,6 +84,11 @@ export class FocusController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Replace pending work with a delayed callback for the current generation.
+   * @param force Whether to bypass the cached symbol result.
+   * @param invalidate Whether scheduling should supersede existing resolution work.
+   */
   private schedule(force: boolean, invalidate = true): void {
     if (invalidate) {
       this.invalidate();
@@ -93,6 +114,10 @@ export class FocusController implements vscode.Disposable {
     this.generation.schedule(250, (generation) => void this.resolve(generation, force));
   }
 
+  /**
+   * Cancel the debounce timer and resolve the current editor selection.
+   * @param force Whether to bypass the cached symbol result.
+   */
   private resolveImmediately(force: boolean): void {
     this.invalidate();
     if (!this.view.visible || this.disposed) {
@@ -102,6 +127,11 @@ export class FocusController implements vscode.Disposable {
     void this.resolve(generation, force);
   }
 
+  /**
+   * Resolve the captured request and discard results superseded by newer focus.
+   * @param generation Identity of the request or result being processed.
+   * @param force Whether to bypass the cached symbol result.
+   */
   private async resolve(generation: number, force: boolean): Promise<void> {
     if (this.isStale(generation) || !this.view.visible) {
       return;
@@ -163,12 +193,20 @@ export class FocusController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Release the active type session and display guidance for selecting a symbol.
+   */
   private async showIdle(): Promise<void> {
     this.focusCache = undefined;
     this.view.setState({ kind: "idle", message: IDLE_MESSAGE });
     await this.expansion.replace(undefined);
   }
 
+  /**
+   * Reuse a result only within the same document version and symbol range.
+   * @param document Editor document supplying source text and offsets.
+   * @param offset Zero-based source offset within the selected identifier.
+   */
   private isSameCachedSymbol(document: vscode.TextDocument, offset: number): boolean {
     return isSameCachedSymbol(
       this.focusCache,
@@ -178,6 +216,9 @@ export class FocusController implements vscode.Disposable {
     );
   }
 
+  /**
+   * Advance the generation so earlier asynchronous work cannot publish.
+   */
   private invalidate(): void {
     this.cancellation.abort();
     this.cancellation = new AbortController();
@@ -189,6 +230,10 @@ export class FocusController implements vscode.Disposable {
   }
 }
 
+/**
+ * Restrict semantic resolution to supported TypeScript and JavaScript documents.
+ * @param editor Editor supplying the active document and selection.
+ */
 function isEligibleEditor(editor: vscode.TextEditor | undefined): editor is vscode.TextEditor {
   if (editor === undefined) {
     return false;
@@ -201,6 +246,10 @@ function isEligibleEditor(editor: vscode.TextEditor | undefined): editor is vsco
   );
 }
 
+/**
+ * Accept a cursor or selection only when it belongs to one identifier.
+ * @param editor Editor supplying the active document and selection.
+ */
 export function selectedSymbolOffset(editor: vscode.TextEditor): number | undefined {
   const { document, selection } = editor;
   if (selection.isEmpty) {

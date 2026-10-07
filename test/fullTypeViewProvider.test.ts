@@ -8,6 +8,9 @@ vi.mock("../src/sidebar/themePaletteResolver", () => ({ resolveActiveThemeTokenP
 import type * as vscode from "vscode";
 import { FullTypeViewProvider } from "../src/sidebar/fullTypeViewProvider";
 
+/**
+ * Create an attachable view transport for lifecycle and render-message tests.
+ */
 function view() {
   const listeners = new Map<string, (value?: unknown) => void>();
   const subscribe = (name: string) => (listener: (value?: unknown) => void) => {

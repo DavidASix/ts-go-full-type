@@ -24,6 +24,10 @@ export async function buildTypeExpression(
 ): Promise<readonly TypeExpressionPart[]> {
   const bindings = bindChildren(syntax, children);
   const names = new Set<string>();
+  /**
+   * Collect identifiers so generated expression placeholders cannot collide with user names.
+   * @param node Syntax or presentation node being processed.
+   */
   const collect = (node: Node): void => {
     if (isIdentifier(node)) names.add(node.text);
     node.forEachChild(collect);
@@ -32,6 +36,10 @@ export async function buildTypeExpression(
   let prefix = "__fullTypeViewer_slot_";
   while ([...names].some((name) => name.startsWith(prefix))) prefix += "_";
   const replacements = new Map<Node, string>(bindings.map((binding, index) => [binding.node, `${prefix}${index}`]));
+  /**
+   * Replace bound type-node positions while retaining surrounding compiler syntax.
+   * @param node Syntax or presentation node being processed.
+   */
   const visit = (node: Node): Node => {
     const name = replacements.get(node);
     return name === undefined ? visitEachChild(node, visit) : createTypeReferenceNode(createIdentifier(name));

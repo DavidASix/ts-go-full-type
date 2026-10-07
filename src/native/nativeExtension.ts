@@ -13,6 +13,10 @@ export interface NativePreviewExtensionAPI {
   ): vscode.Disposable;
 }
 
+/**
+ * Validate the native extension export before relying on its lifecycle API.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function validateNativePreviewAPI(value: unknown): NativePreviewExtensionAPI | undefined {
   if (
     !isRecord(value) ||
@@ -25,6 +29,9 @@ export function validateNativePreviewAPI(value: unknown): NativePreviewExtension
   return value as unknown as NativePreviewExtensionAPI;
 }
 
+/**
+ * Activate the pinned native extension and reject incompatible API exports.
+ */
 export async function activateNativeExtension(): Promise<NativePreviewExtensionAPI> {
   const extension = vscode.extensions.getExtension<unknown>(NATIVE_EXTENSION_ID);
   if (extension === undefined) {

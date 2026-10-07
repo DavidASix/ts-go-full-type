@@ -5,6 +5,9 @@ import type { TypeRenderNode, ViewState } from "../../src/shared/protocol";
 
 const EXTENSION_ID = "undefined_publisher.ts-full-type-viewer";
 
+/**
+ * Exercise the activated extension against the pinned native compiler in VS Code.
+ */
 export async function run(): Promise<void> {
   const native = vscode.extensions.getExtension("TypeScriptTeam.native-preview");
   assert.ok(native, "TypeScriptTeam.native-preview must be installed");
@@ -58,6 +61,11 @@ export async function run(): Promise<void> {
   await focusAlias(editor, document, "TreeFixture");
   state = await waitForSuccess(api, "TreeFixture");
   const tree = state.result.root;
+  /**
+   * Charge relationship labels and annotations against the presentation budget.
+   * @param node Syntax or presentation node being processed.
+   * @param label Property or relationship label to display or locate.
+   */
   const edge = (node: TypeRenderNode, label: string): TypeRenderNode => {
     const result = node.content.children?.find((child) => child.label === label)?.node;
     assert.ok(result, `contains ${label}: ${JSON.stringify(node)}`);
@@ -179,6 +187,11 @@ export async function run(): Promise<void> {
   if (acceptanceFile) await runAcceptanceSuite(api, acceptanceFile);
 }
 
+/**
+ * Verify complete shallow output and recursive expansion in the optional real project fixture.
+ * @param api Activated extension interface used by the integration suite.
+ * @param acceptanceFile Optional real project source file to exercise.
+ */
 async function runAcceptanceSuite(api: FullTypeViewerTestingAPI, acceptanceFile: string): Promise<void> {
   const targetUri = vscode.Uri.file(acceptanceFile);
   const targetDocument = await vscode.workspace.openTextDocument(targetUri);
@@ -235,6 +248,12 @@ async function runAcceptanceSuite(api: FullTypeViewerTestingAPI, acceptanceFile:
   await assertCopyCommand(state.rawText);
 }
 
+/**
+ * Move the editor cursor onto an alias declaration in the integration fixture.
+ * @param editor Editor supplying the active document and selection.
+ * @param document Editor document supplying source text and offsets.
+ * @param name Identifier or relationship label being selected.
+ */
 async function focusAlias(
   editor: vscode.TextEditor,
   document: vscode.TextDocument,
@@ -247,6 +266,13 @@ async function focusAlias(
   editor.revealRange(new vscode.Range(position, position));
 }
 
+/**
+ * Select an identifier at a specific occurrence in the integration fixture.
+ * @param editor Editor supplying the active document and selection.
+ * @param document Editor document supplying source text and offsets.
+ * @param name Identifier or relationship label being selected.
+ * @param prefix Text identifying the intended identifier occurrence.
+ */
 async function focusIdentifier(
   editor: vscode.TextEditor,
   document: vscode.TextDocument,
@@ -260,6 +286,11 @@ async function focusIdentifier(
   editor.revealRange(new vscode.Range(position, position));
 }
 
+/**
+ * Wait for the requested symbol to become the published successful result.
+ * @param api Activated extension interface used by the integration suite.
+ * @param name Identifier or relationship label being selected.
+ */
 async function waitForSuccess(
   api: FullTypeViewerTestingAPI,
   name: string,
@@ -269,6 +300,11 @@ async function waitForSuccess(
   return state;
 }
 
+/**
+ * Poll observable integration state with a bounded timeout and diagnostic output.
+ * @param api Activated extension interface used by the integration suite.
+ * @param predicate Condition selecting the expected observable state or node.
+ */
 async function waitUntil(
   api: FullTypeViewerTestingAPI,
   predicate: (state: ViewState) => boolean,
@@ -285,6 +321,11 @@ async function waitUntil(
   throw new Error(`Timed out waiting for view state. Last state: ${JSON.stringify(last)}`);
 }
 
+/**
+ * Search visible graph descendants for a matching integration assertion target.
+ * @param node Syntax or presentation node being processed.
+ * @param predicate Condition selecting the expected observable state or node.
+ */
 function findNode(node: TypeRenderNode, predicate: (node: TypeRenderNode) => boolean): TypeRenderNode | undefined {
   if (predicate(node)) {
     return node;
@@ -302,6 +343,12 @@ function hasState(node: TypeRenderNode, state: TypeRenderNode["content"]["state"
   return node.content.state === state || (node.content.children ?? []).some((edge) => hasState(edge.node, state));
 }
 
+/**
+ * Search visible relationships for an edge whose child matches the predicate.
+ * @param node Syntax or presentation node being processed.
+ * @param label Property or relationship label to display or locate.
+ * @param predicate Condition selecting the expected observable state or node.
+ */
 function findEdgeNode(
   node: TypeRenderNode,
   label: string,
@@ -319,6 +366,11 @@ function findEdgeNode(
   return undefined;
 }
 
+/**
+ * Collect matching visible relationships for integration failure diagnostics.
+ * @param node Syntax or presentation node being processed.
+ * @param label Property or relationship label to display or locate.
+ */
 function collectEdges(node: TypeRenderNode, label: string): Array<{ text: string; state: string; viewNodeId: string }> {
   const result: Array<{ text: string; state: string; viewNodeId: string }> = [];
   for (const edge of node.content.children ?? []) {
@@ -330,6 +382,10 @@ function collectEdges(node: TypeRenderNode, label: string): Array<{ text: string
   return result;
 }
 
+/**
+ * Verify that the contributed Copy command returns the currently rendered representation.
+ * @param expected Rendered text expected from the Copy command.
+ */
 async function assertCopyCommand(expected: string): Promise<void> {
   const copied = await vscode.commands.executeCommand<string>("fullTypeViewer.copy");
   assert.equal(copied, expected, "copy command writes the current raw TypeScript representation");

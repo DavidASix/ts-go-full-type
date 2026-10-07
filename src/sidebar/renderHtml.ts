@@ -12,6 +12,11 @@ export interface HtmlResources {
   readonly wordWrap?: boolean;
 }
 
+/**
+ * Build the sidebar document with nonce-restricted scripts and escaped content.
+ * @param state Resolution or disclosure state to present.
+ * @param resources Webview script URI, nonce, and presentation preferences.
+ */
 export function renderHtml(state: ViewState, resources: HtmlResources): string {
   const body = renderViewContent(state, resources.wordWrap === true);
   return `<!DOCTYPE html>
@@ -81,6 +86,10 @@ ${renderPaletteProperties(resources.palette)}
 </html>`;
 }
 
+/**
+ * Encode HTML-sensitive characters before inserting user or compiler text.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -90,6 +99,11 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Render either the type tree or the current resolution status.
+ * @param state Resolution or disclosure state to present.
+ * @param wordWrap Whether long rows wrap inside the view.
+ */
 export function renderViewContent(state: ViewState, wordWrap: boolean): string {
   switch (state.kind) {
     case "idle":
@@ -109,6 +123,13 @@ export function renderViewContent(state: ViewState, wordWrap: boolean): string {
   }
 }
 
+/**
+ * Render one accessible tree row and its currently visible descendants.
+ * @param item Visible tree row or focused DOM row.
+ * @param level One-based accessibility nesting level.
+ * @param position Token or sibling position used for classification or accessibility.
+ * @param size Number of siblings at this accessibility level.
+ */
 function renderTreeItem(item: TypeTreeItem, level: number, position: number, size: number): string {
   const expandable = item.node.content.state === "collapsed" || item.node.content.state === "expanded";
   const expanded = item.node.content.state === "expanded";
@@ -122,6 +143,10 @@ function renderTreeItem(item: TypeTreeItem, level: number, position: number, siz
   return `<li role="none" data-key="${escapeAttribute(item.id)}"><div class="tree-item${level === 1 ? " tree-root" : ""}" role="treeitem" tabindex="${level === 1 ? "0" : "-1"}" data-node-id="${escapeAttribute(item.id)}" aria-level="${level}" aria-posinset="${position}" aria-setsize="${size}" aria-label="${escapeAttribute(ariaLabel)}"${state}><div class="tree-row"${expandable ? " data-expandable" : ""} title="${escapeAttribute(item.node.content.expressionText ?? item.node.text)}"><span class="disclosure" aria-hidden="true">${disclosure}</span><span class="tree-icon icon-${item.iconClass}" aria-hidden="true">${item.icon}</span><span class="tree-content"><span class="tree-label">${escapeHtml(item.label)}</span> <span class="tree-description">${tokenizeTypeScript(item.summary).map(renderSegment).join("")}</span>${recursive}</span></div>${note}${children}</div></li>`;
 }
 
+/**
+ * Render classified text as escaped HTML for syntax highlighting.
+ * @param segment Classified presentation segment to serialize or render.
+ */
 function renderSegment(segment: CodeSegment): string {
   switch (segment.kind) {
     case "text":
@@ -139,6 +164,10 @@ function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/\r|\n/g, " ");
 }
 
+/**
+ * Emit CSS variables only for validated theme foreground colors.
+ * @param palette Validated active-theme token foreground colors.
+ */
 export function renderPaletteProperties(palette: ThemeTokenPalette | undefined): string {
   const values: ReadonlyArray<readonly [string, keyof ThemeTokenPalette, string]> = [
     ["--ft-keyword", "keyword", "var(--vscode-symbolIcon-keywordForeground, var(--ft-code))"],

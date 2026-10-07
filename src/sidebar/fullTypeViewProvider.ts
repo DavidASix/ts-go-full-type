@@ -21,6 +21,12 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
   private readonly viewDisposables: vscode.Disposable[] = [];
   private ready = false;
 
+  /**
+   * Initialize webview resources, visibility callbacks, and theme subscriptions.
+   * @param extensionUri Extension root used to resolve local webview resources.
+   * @param events Host callbacks for view visibility and disclosure messages.
+   * @param wordWrap Whether long rows wrap inside the view.
+   */
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly events: FullTypeViewEvents,
@@ -38,6 +44,10 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     return this.view?.visible === true;
   }
 
+  /**
+   * Attach the view transport and restore the current presentation after readiness.
+   * @param view Sidebar state and presentation transport.
+   */
   public resolveWebviewView(view: vscode.WebviewView): void {
     this.releaseView();
     this.view = view;
@@ -69,6 +79,10 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     this.events.onVisibilityChanged(view.visible);
   }
 
+  /**
+   * Store the latest host state and update an attached webview.
+   * @param state Resolution or disclosure state to present.
+   */
   public setState(state: ViewState): void {
     this.state = state;
     this.render();
@@ -78,6 +92,10 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     return this.state;
   }
 
+  /**
+   * Persist the wrapping preference and update the view and command context together.
+   * @param enabled Whether long type rows should wrap.
+   */
   public setWordWrap(enabled: boolean): void {
     if (enabled === this.wordWrap) {
       return;
@@ -86,6 +104,9 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     this.render();
   }
 
+  /**
+   * Release subscriptions and prevent further work after teardown.
+   */
   public dispose(): void {
     this.paletteRequest += 1;
     for (const disposable of this.disposables.splice(0)) {
@@ -94,12 +115,18 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     this.releaseView();
   }
 
+  /**
+   * Release subscriptions associated with the current webview instance.
+   */
   private releaseView(): void {
     this.ready = false;
     for (const disposable of this.viewDisposables.splice(0)) disposable.dispose();
     this.view = undefined;
   }
 
+  /**
+   * Publish the current presentation to the sidebar.
+   */
   private render(): void {
     const webview = this.view?.webview;
     if (webview === undefined) {
@@ -115,6 +142,9 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     void webview.postMessage(update);
   }
 
+  /**
+   * Resolve active-theme colors and publish only the newest asynchronous palette result.
+   */
   private async refreshPalette(): Promise<void> {
     const request = ++this.paletteRequest;
     const palette = await resolveActiveThemeTokenPalette();

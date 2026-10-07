@@ -5,6 +5,11 @@ import { NativeConnection } from "../src/native/nativeConnection";
 import type { NativePreviewExtensionAPI } from "../src/native/nativeExtension";
 import { deferred } from "./support/deferred";
 
+/**
+ * Build controllable dependencies and event sources for asynchronous lifecycle assertions.
+ * @param connect Controlled native client handshake operation.
+ * @param ready Initial native server readiness state.
+ */
 function setup(connect = vi.fn(async () => client()), ready = true) {
   let initialized!: () => void;
   const unsubscribe = vi.fn();

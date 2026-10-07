@@ -9,6 +9,10 @@ export class ExpansionController {
 
   public constructor(private readonly view: Pick<FullTypeViewProvider, "setState" | "getState">) {}
 
+  /**
+   * Publish the replacement session before releasing the previous snapshot owner.
+   * @param session Resolved type session and its snapshot ownership.
+   */
   public async replace(session: ResolvedCompleteType | undefined): Promise<void> {
     const previous = this.session;
     this.session = session;
@@ -32,6 +36,9 @@ export class ExpansionController {
     await this.mutate(async (session) => session.graph.collapseAll());
   }
 
+  /**
+   * Write the currently visible TypeScript representation to the clipboard.
+   */
   public async copy(): Promise<string | undefined> {
     const state = this.view.getState();
     if (state.kind !== "success") {
@@ -49,6 +56,10 @@ export class ExpansionController {
     await this.replace(undefined);
   }
 
+  /**
+   * Apply a graph operation and publish its result only while its session is still current.
+   * @param operation Work to perform while the current owner remains valid.
+   */
   private async mutate(operation: (session: ResolvedCompleteType) => Promise<void>): Promise<void> {
     const session = this.session;
     if (session === undefined) {
@@ -72,6 +83,9 @@ export class ExpansionController {
     }
   }
 
+  /**
+   * Publish the current presentation to the sidebar.
+   */
   private render(): void {
     const session = this.session;
     if (session === undefined) {

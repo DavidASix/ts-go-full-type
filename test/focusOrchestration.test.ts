@@ -21,6 +21,10 @@ import type { ResolveRequest, ResolvedCompleteType } from "../src/native/complet
 import type { ViewState } from "../src/shared/protocol";
 import { deferred } from "./support/deferred";
 
+/**
+ * Create a disposable resolved type session for controller ownership tests.
+ * @param request Captured editor text, focus, generation, and cancellation scope.
+ */
 function session(request: ResolveRequest): ResolvedCompleteType {
   return {
     result: { name: request.offset < 5 ? "First" : "Second", generation: request.generation, compilerVersion: "7.0.2", sourceUri: request.uri, project: "/tsconfig.json", root: { text: "string", viewNodeId: "leaf", content: { state: "leaf", layout: "atom" }} },
@@ -28,6 +32,9 @@ function session(request: ResolveRequest): ResolvedCompleteType {
     graph: {}, dispose: vi.fn(async () => undefined),
   } as unknown as ResolvedCompleteType;
 }
+/**
+ * Build controllable dependencies and event sources for asynchronous lifecycle assertions.
+ */
 function setup() {
   let text = "First Second";
   let offset = 0;

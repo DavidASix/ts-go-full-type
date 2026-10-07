@@ -38,11 +38,20 @@ interface FakeModel {
   constraint?: Type;
 }
 
+/**
+ * Model native semantic queries independently of graph materialization for focused tests.
+ */
 function createHarness() {
   const syntax = new Map<number, Node>();
   const models = new Map<number, FakeModel>();
   let nextId = 1;
 
+  /**
+   * Allocate an independent fake compiler type and its mutable semantic fixture model.
+   * @param text Compiler presentation or label charged to the graph budget.
+   * @param kind Compiler token kind or presentation category.
+   * @param options Error metadata or fixture configuration.
+   */
   function type(
     text: string,
     kind: Kind = "leaf",
@@ -101,6 +110,13 @@ function createHarness() {
     return models.get(value.id)!;
   }
 
+  /**
+   * Attach a fake compiler property and its semantic type to a fixture owner.
+   * @param owner Fixture semantic type receiving the property or signature.
+   * @param name Identifier or relationship label being selected.
+   * @param value Untrusted value to validate or normalize.
+   * @param optional Whether the fixture property may be absent.
+   */
   function property(owner: Type, name: string, value: Type, optional = false): void {
     const symbol = {
       id: nextId++ * 1000,
@@ -146,6 +162,13 @@ function createHarness() {
   } as unknown as Checker;
 
   const signatureReturns = new Map<Signature, Type>();
+  /**
+   * Attach a callable or construct signature with independently configured parameter and return types.
+   * @param owner Fixture semantic type receiving the property or signature.
+   * @param kind Compiler token kind or presentation category.
+   * @param parameters Ordered fixture signature parameter names and types.
+   * @param returns Fixture semantic return type.
+   */
   function signature(owner: Type, kind: SignatureKind, parameters: Array<[string, Type]>, returns: Type): void {
     const parameterOwner = type("parameters", "object");
     for (const [name, value] of parameters) property(parameterOwner, name, value);
@@ -161,6 +184,10 @@ function createHarness() {
   function index(owner: Type, keyType: Type, valueType: Type): void {
     model(owner).indexes.push({ keyType, valueType, isReadonly: false });
   }
+  /**
+   * Print the small compiler syntax subset used by tuple graph fixtures.
+   * @param node Syntax or presentation node being processed.
+   */
   function printSyntax(node: Node): string {
     if (isNamedTupleMember(node)) return `${node.dotDotDotToken ? "..." : ""}${node.name.text}${node.questionToken ? "?" : ""}: ${printSyntax(node.type)}`;
     if (isOptionalTypeNode(node)) return `${printSyntax(node.type)}?`;

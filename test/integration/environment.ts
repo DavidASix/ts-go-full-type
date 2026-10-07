@@ -9,6 +9,10 @@ async function isExecutable(path: string): Promise<boolean> {
   try { await access(path, constants.X_OK); return true; } catch { return false; }
 }
 
+/**
+ * Locate and validate the installed VS Code and pinned native extension for integration tests.
+ * @param env Environment overrides for executable and fixture discovery.
+ */
 export async function resolveIntegrationEnvironment(env: NodeJS.ProcessEnv = process.env) {
   let vscodeExecutable = env.FULL_TYPE_VIEWER_VSCODE;
   if (vscodeExecutable === undefined) {

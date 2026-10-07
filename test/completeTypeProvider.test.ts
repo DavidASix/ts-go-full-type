@@ -7,6 +7,10 @@ import type { Node, TypeNode } from "typescript/unstable/ast";
 import { resolveFocusedType } from "../src/native/completeTypeProvider";
 import type { SymbolFocus } from "../src/native/focus";
 
+/**
+ * Create a focused identifier fixture with optional explicitly associated type syntax.
+ * @param typeNode Fixture input used to control the behavior under test.
+ */
 function focus(typeNode?: TypeNode): SymbolFocus {
   return {
     name: "Selected",

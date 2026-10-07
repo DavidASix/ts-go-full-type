@@ -20,6 +20,9 @@ const vscode = acquireVsCodeApi();
 let tree = document.querySelector<HTMLElement>('[role="tree"]');
 let scrollSurface = document.querySelector<HTMLElement>(".scroll");
 
+/**
+ * Recover persisted tree navigation state from the webview API.
+ */
 function readState(): Partial<SavedTreeState> | undefined {
   const value = vscode.getState();
   return typeof value === "object" && value !== null ? value as Partial<SavedTreeState> : undefined;
@@ -29,6 +32,10 @@ function items(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('[role="treeitem"]')];
 }
 
+/**
+ * Persist the current row, scroll position, and metadata disclosure state.
+ * @param item Visible tree row or focused DOM row.
+ */
 function save(item: HTMLElement | null = document.activeElement as HTMLElement | null): void {
   if (tree === null || scrollSurface === null) return;
   const previous = readState();
@@ -42,6 +49,11 @@ function save(item: HTMLElement | null = document.activeElement as HTMLElement |
   });
 }
 
+/**
+ * Move the roving tab stop and reveal the selected row without scrolling the document.
+ * @param item Visible tree row or focused DOM row.
+ * @param preventScroll Whether focus should preserve the current scroll position.
+ */
 function focus(item: HTMLElement | undefined, preventScroll = false): void {
   if (item === undefined) return;
   for (const row of items()) row.tabIndex = row === item ? 0 : -1;
@@ -57,6 +69,10 @@ function focus(item: HTMLElement | undefined, preventScroll = false): void {
   save(item);
 }
 
+/**
+ * Post a disclosure request only for rows that expose an expansion state.
+ * @param item Visible tree row or focused DOM row.
+ */
 function toggle(item: HTMLElement): void {
   const viewNodeId = item.dataset.nodeId;
   if (!item.hasAttribute("aria-expanded") || viewNodeId === undefined) return;
@@ -100,6 +116,10 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
 });
 
+/**
+ * Restore navigation for the same symbol and reset it when the generation changes.
+ * @param saved Previously persisted webview navigation state.
+ */
 function restore(saved: Partial<SavedTreeState> | undefined): void {
   if (tree === null) return;
   if (saved !== undefined && saved.generation === tree.dataset.generation) {

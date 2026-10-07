@@ -43,6 +43,10 @@ export function emptyThemeData(): ThemeData {
   return { semanticTokenColors: {}, tokenColors: [] };
 }
 
+/**
+ * Parse JSONC theme data and retain only supported token rule shapes.
+ * @param source Theme file text to parse as JSONC.
+ */
 export function parseThemeData(source: string): ThemeData | undefined {
   let parsed: unknown;
   try {
@@ -65,6 +69,11 @@ export function parseThemeData(source: string): ThemeData | undefined {
   };
 }
 
+/**
+ * Apply local theme overrides after inherited semantic and TextMate token rules.
+ * @param inherited Previously loaded base-theme rules.
+ * @param local Current theme rules that override inherited rules.
+ */
 export function mergeThemeData(inherited: ThemeData, local: ThemeData): ThemeData {
   return {
     semanticTokenColors: {
@@ -75,6 +84,10 @@ export function mergeThemeData(inherited: ThemeData, local: ThemeData): ThemeDat
   };
 }
 
+/**
+ * Choose semantic colors first and fall back to matching TextMate rules.
+ * @param theme Validated semantic and TextMate rules.
+ */
 export function resolveThemeTokenPalette(theme: ThemeData): ThemeTokenPalette {
   const palette: Partial<Record<keyof ThemeTokenPalette, string>> = {};
   for (const mapping of PALETTE_MAPPINGS) {
@@ -88,6 +101,10 @@ export function resolveThemeTokenPalette(theme: ThemeData): ThemeTokenPalette {
   return palette;
 }
 
+/**
+ * Accept only hexadecimal CSS colors to keep theme CSS insertion bounded.
+ * @param value Untrusted value to validate or normalize.
+ */
 export function normalizeThemeColor(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -98,6 +115,11 @@ export function normalizeThemeColor(value: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * Choose the first supported semantic selector with a valid foreground.
+ * @param colors Semantic token selector rules from the theme.
+ * @param selectors Preferred semantic selector names in priority order.
+ */
 function semanticForeground(
   colors: Readonly<Record<string, unknown>>,
   selectors: readonly string[],
@@ -114,6 +136,11 @@ function semanticForeground(
   return undefined;
 }
 
+/**
+ * Prefer exact scopes and later theme rules before broader scope matches.
+ * @param rules TextMate rules in original theme order.
+ * @param scopes Preferred TextMate scopes to match.
+ */
 function textMateForeground(rules: readonly TextMateRule[], scopes: readonly string[]): string | undefined {
   for (const exactOnly of [true, false]) {
     for (let index = rules.length - 1; index >= 0; index -= 1) {
@@ -130,6 +157,12 @@ function textMateForeground(rules: readonly TextMateRule[], scopes: readonly str
   return undefined;
 }
 
+/**
+ * Match comma-separated scope selectors against requested exact or descendant scopes.
+ * @param ruleScope One or more selectors from the candidate TextMate rule.
+ * @param wanted Scopes requested by the token category.
+ * @param exactOnly Whether descendant scope matches are excluded.
+ */
 function scopeMatches(
   ruleScope: string | readonly string[] | undefined,
   wanted: readonly string[],
@@ -146,6 +179,10 @@ function scopeMatches(
     exactOnly ? selector === scope : selector.startsWith(`${scope}.`)));
 }
 
+/**
+ * Remove JSONC syntax while retaining quoted text and escaped characters.
+ * @param source Theme file text to parse as JSONC.
+ */
 function stripJsonCommentsAndTrailingCommas(source: string): string {
   const withoutComments: string[] = [];
   let inString = false;
@@ -234,6 +271,10 @@ function stripJsonCommentsAndTrailingCommas(source: string): string {
   return result.join("");
 }
 
+/**
+ * Validate supported scope and foreground fields of a TextMate theme rule.
+ * @param value Untrusted value to validate or normalize.
+ */
 function isTextMateRule(value: unknown): value is TextMateRule {
   if (!isRecord(value)) {
     return false;

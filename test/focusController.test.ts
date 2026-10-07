@@ -5,6 +5,13 @@ vi.mock("vscode", () => ({}));
 import type * as vscode from "vscode";
 import { selectedSymbolOffset } from "../src/controller/focusController";
 
+/**
+ * Build an editor selection fixture with an independently configured word range.
+ * @param start Start offset of the editor selection.
+ * @param end End offset of the editor selection.
+ * @param wordStart Start offset of the containing identifier.
+ * @param wordEnd End offset of the containing identifier.
+ */
 function editor(start: number, end: number, wordStart = 2, wordEnd = 8): vscode.TextEditor {
   const position = (character: number) => ({ line: 0, character }) as vscode.Position;
   return {

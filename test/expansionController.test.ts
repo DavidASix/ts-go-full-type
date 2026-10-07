@@ -16,6 +16,10 @@ import type { TypeGraph } from "../src/native/typeGraph";
 import type { CompleteTypeResult, ViewState } from "../src/shared/protocol";
 import type { FullTypeViewProvider } from "../src/sidebar/fullTypeViewProvider";
 
+/**
+ * Create a complete type result with a distinct generation for presentation assertions.
+ * @param generation Identity of the request or result being processed.
+ */
 function result(generation: number): CompleteTypeResult {
   return {
     name: `Alias${generation}`,
@@ -27,6 +31,10 @@ function result(generation: number): CompleteTypeResult {
   };
 }
 
+/**
+ * Create a disposable resolved type session for controller ownership tests.
+ * @param generation Identity of the request or result being processed.
+ */
 function session(generation: number) {
   const dispose = vi.fn(async () => undefined);
   const graph = {

@@ -51,6 +51,10 @@ export class NativeConnection implements vscode.Disposable {
 
   public constructor(private readonly dependencies = defaultDependencies) {}
 
+  /**
+   * Subscribe to invalidation and return a disposable that removes the listener.
+   * @param listener Callback invoked when the current native state becomes invalid.
+   */
   public onDidInvalidate(listener: () => void | Promise<void>): vscode.Disposable {
     this.invalidationListeners.add(listener);
     return { dispose: () => { this.invalidationListeners.delete(listener); } };
@@ -60,6 +64,9 @@ export class NativeConnection implements vscode.Disposable {
     return !this.disposed && this.client === connection.api && this.clientGeneration === connection.generation;
   }
 
+  /**
+   * Reuse a live client or share one pending connection attempt among callers.
+   */
   public async get(): Promise<ConnectedAPI> {
     if (this.disposed) {
       throw new UserVisibleError("Full Type Viewer has been disposed.");
@@ -73,6 +80,11 @@ export class NativeConnection implements vscode.Disposable {
     return this.connecting;
   }
 
+  /**
+   * Retry a failed operation once after the native server becomes ready again.
+   * @param operation Work to perform while the current owner remains valid.
+   * @param signal Cancellation scope for the pending operation.
+   */
   public async runWithReconnect<T>(operation: (connection: ConnectedAPI) => Promise<T>, signal = new AbortController().signal): Promise<T> {
     assertRequestActive(signal);
     const initial = await awaitWhileActive(this.get(), signal);
@@ -106,6 +118,9 @@ export class NativeConnection implements vscode.Disposable {
     return this.disposal ??= this.shutdown();
   }
 
+  /**
+   * Cancel requests and drain outstanding ownership before releasing resources.
+   */
   private async shutdown(): Promise<void> {
     this.disposed = true;
     for (const waiter of this.waiters) {
@@ -125,6 +140,9 @@ export class NativeConnection implements vscode.Disposable {
     void this.disposeAsync();
   }
 
+  /**
+   * Retry handshakes interrupted by a native server restart.
+   */
   private async connectWithRetry(): Promise<ConnectedAPI> {
     try {
       return await this.connect();
@@ -135,6 +153,9 @@ export class NativeConnection implements vscode.Disposable {
     }
   }
 
+  /**
+   * Establish a native API client and discard handshakes from obsolete server epochs.
+   */
   private async connect(): Promise<ConnectedAPI> {
     await this.ensureNativeAPI();
     this.assertAlive();
@@ -168,6 +189,9 @@ export class NativeConnection implements vscode.Disposable {
     return { api: this.client, generation: this.clientGeneration };
   }
 
+  /**
+   * Activate the native extension once and subscribe to server lifecycle changes.
+   */
   private async ensureNativeAPI(): Promise<void> {
     if (this.nativeAPI !== undefined) {
       return;
@@ -183,6 +207,9 @@ export class NativeConnection implements vscode.Disposable {
     });
   }
 
+  /**
+   * Wait for initialization when the native server has not announced readiness.
+   */
   private async waitUntilReady(): Promise<void> {
     if (this.serverEpoch > 0) {
       return;
@@ -190,6 +217,11 @@ export class NativeConnection implements vscode.Disposable {
     await this.waitForReadyAfter(0, true);
   }
 
+  /**
+   * Wait for a usable server epoch with a bounded initialization timeout.
+   * @param afterEpoch Server epoch that must be superseded before continuing.
+   * @param allowCurrent Whether an already ready epoch is acceptable.
+   */
   private waitForReadyAfter(afterEpoch: number, allowCurrent = false): Promise<void> {
     this.assertAlive();
     if ((allowCurrent && this.serverEpoch > 0) || this.serverEpoch > afterEpoch) {
@@ -209,6 +241,9 @@ export class NativeConnection implements vscode.Disposable {
     });
   }
 
+  /**
+   * Release waiters whose required server epoch has become ready.
+   */
   private resolveReadyWaiters(): void {
     for (const waiter of this.waiters) {
       if (this.serverEpoch > waiter.afterEpoch) {
@@ -223,6 +258,9 @@ export class NativeConnection implements vscode.Disposable {
     if (this.disposed) throw new UserVisibleError("Full Type Viewer has been disposed.");
   }
 
+  /**
+   * Retire the current client and notify owners to drain their snapshots.
+   */
   private invalidateClient(): void {
     const client = this.client;
     this.client = undefined;

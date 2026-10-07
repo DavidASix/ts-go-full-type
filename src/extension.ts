@@ -4,7 +4,6 @@ import { FocusController } from "./controller/focusController";
 import { CompleteTypeProvider } from "./native/completeTypeProvider";
 import { NativeConnection } from "./native/nativeConnection";
 import { FullTypeViewProvider, VIEW_ID } from "./sidebar/fullTypeViewProvider";
-import type { ViewState } from "./shared/protocol";
 
 interface Runtime {
   readonly focus: FocusController;
@@ -18,16 +17,11 @@ const WORD_WRAP_KEY = "fullTypeViewer.wordWrap";
 
 let runtime: Runtime | undefined;
 
-export interface FullTypeViewerTestingAPI {
-  getViewState(): ViewState;
-  toggle(viewNodeId: string): Promise<void>;
-}
-
 /**
  * Register the sidebar, editor tracking, and contributed commands for this extension session.
  * @param context VS Code extension context that owns subscriptions and persisted preferences.
  */
-export function activate(context: vscode.ExtensionContext): FullTypeViewerTestingAPI {
+export function activate(context: vscode.ExtensionContext): void {
   const connection = new NativeConnection();
   const provider = new CompleteTypeProvider(connection);
   let focus: FocusController;
@@ -67,10 +61,7 @@ export function activate(context: vscode.ExtensionContext): FullTypeViewerTestin
     vscode.commands.registerCommand("fullTypeViewer.enableWordWrap", () => setWordWrap(true)),
     vscode.commands.registerCommand("fullTypeViewer.disableWordWrap", () => setWordWrap(false)),
   );
-  return {
-    getViewState: () => view.getState(),
-    toggle: async (viewNodeId) => expansion.toggle(viewNodeId),
-  };
+
 }
 
 /**

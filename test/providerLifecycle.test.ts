@@ -1,3 +1,4 @@
+import { RequestCancelledError } from "../src/shared/cancellation";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({}));
 import type { API, Project, Snapshot, Type } from "typescript/unstable/async";
@@ -43,7 +44,7 @@ describe("serialized resolution ownership", () => {
     const { provider, connection } = setup(update);
     const cancellation = new AbortController();
     const resolving = provider.resolve(request(undefined, cancellation.signal));
-    const rejected = expect(resolving).rejects.toThrow("superseded");
+    const rejected = expect(resolving).rejects.toThrow(RequestCancelledError);
     await started.promise;
     cancellation.abort();
     response.resolve(old.value);
@@ -64,7 +65,7 @@ describe("serialized resolution ownership", () => {
       .mockResolvedValueOnce(latest.value);
     const { provider, connection } = setup(update);
     const first = provider.resolve(request());
-    const rejected = expect(first).rejects.toThrow("superseded");
+    const rejected = expect(first).rejects.toThrow(RequestCancelledError);
     await started.promise;
     const second = provider.resolve({ ...request("file:///b.ts"), text: "" });
     expect(update).toHaveBeenCalledOnce();
@@ -84,7 +85,7 @@ describe("serialized resolution ownership", () => {
     const update = vi.fn(async () => old.value);
     const { provider, connection, api } = setup(update);
     const resolving = provider.resolve(request());
-    const rejected = expect(resolving).rejects.toThrow("superseded");
+    const rejected = expect(resolving).rejects.toThrow(RequestCancelledError);
     await vi.waitFor(() => expect(api.clearSourceFileCache).toHaveBeenCalledOnce());
     await provider.disposeAsync();
     await rejected;

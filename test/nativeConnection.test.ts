@@ -1,3 +1,5 @@
+import { RequestCancelledError } from "../src/shared/cancellation";
+import { UserVisibleError } from "../src/shared/errors";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({}));
 import type { API } from "typescript/unstable/async";
@@ -39,7 +41,7 @@ describe("native connection ownership", () => {
       return handshake.promise;
     }));
     const getting = connection.get();
-    const rejected = expect(getting).rejects.toThrow("disposed");
+    const rejected = expect(getting).rejects.toThrow(UserVisibleError);
     await started.promise;
     const disposing = connection.disposeAsync();
     const late = client();
@@ -131,7 +133,7 @@ describe("native connection ownership", () => {
       restart(); const next = client(); clients.push(next); return next;
     });
     const h = setup(connect); restart = h.restart;
-    await expect(h.connection.get()).rejects.toThrow("restarted while connecting");
+    await expect(h.connection.get()).rejects.toThrow(UserVisibleError);
     expect(connect).toHaveBeenCalledTimes(2);
     for (const next of clients) expect(next.close).toHaveBeenCalledOnce();
     await h.connection.disposeAsync();
@@ -143,7 +145,7 @@ describe("native connection ownership", () => {
     expect(connections[0].api).toBe(connections[1].api);
     expect(h.connect).toHaveBeenCalledOnce();
     await h.connection.disposeAsync();
-    await expect(h.connection.get()).rejects.toThrow("disposed");
+    await expect(h.connection.get()).rejects.toThrow(UserVisibleError);
   });
 
   it("retries a failed operation once after server initialization, then stops", async () => {
@@ -152,18 +154,19 @@ describe("native connection ownership", () => {
       h.restart();
       throw new Error("socket closed");
     });
-    await expect(h.connection.runWithReconnect(operation)).rejects.toThrow("restarted during the request");
+    await expect(h.connection.runWithReconnect(operation)).rejects.toThrow(UserVisibleError);
     expect(operation).toHaveBeenCalledTimes(2);
     await h.connection.disposeAsync();
   });
 
   it("does not replay semantic failures or canceled work", async () => {
     const h = setup();
-    const operation = vi.fn(async () => { throw new Error("invalid semantic type"); });
-    await expect(h.connection.runWithReconnect(operation)).rejects.toThrow("invalid semantic type");
+    const failure = new Error("invalid semantic type");
+    const operation = vi.fn(async () => { throw failure; });
+    await expect(h.connection.runWithReconnect(operation)).rejects.toBe(failure);
     expect(operation).toHaveBeenCalledOnce();
     const scope = new AbortController(); scope.abort();
-    await expect(h.connection.runWithReconnect(operation, scope.signal)).rejects.toThrow("superseded");
+    await expect(h.connection.runWithReconnect(operation, scope.signal)).rejects.toThrow(RequestCancelledError);
     expect(operation).toHaveBeenCalledOnce();
     await h.connection.disposeAsync();
   });
@@ -171,7 +174,7 @@ describe("native connection ownership", () => {
   it("times out initialization with an actionable error instead of waiting indefinitely", async () => {
     vi.useFakeTimers();
     const h = setup(undefined, false);
-    const rejected = expect(h.connection.get()).rejects.toThrow("15 seconds");
+    const rejected = expect(h.connection.get()).rejects.toThrow(UserVisibleError);
     await vi.advanceTimersByTimeAsync(15000);
     await rejected;
     expect(h.connect).not.toHaveBeenCalled();

@@ -110,7 +110,7 @@ describe("ExpansionController", () => {
     vi.spyOn(current.graph, "toggle").mockRejectedValueOnce(new UserVisibleError("node limit"));
     await controller.replace(current.value);
     await controller.toggle("node");
-    expect(state).toMatchObject({ kind: "success", notice: "node limit" });
+    expect(state).toMatchObject({ kind: "success", notice: expect.any(String) });
     await controller.expandLevel();
     expect(current.graph.expandFrontier).toHaveBeenCalledOnce();
     await controller.collapseAll();

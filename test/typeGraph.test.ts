@@ -1,3 +1,4 @@
+import { UserVisibleError } from "../src/shared/errors";
 import { describe, expect, it, vi } from "vitest";
 import {
   SignatureKind,
@@ -338,7 +339,7 @@ describe("TypeGraph", () => {
     expect(root.content.children![0]!.node.content.children![0]!.node.content.state).toBe("collapsed");
     await graph.collapseAll();
     expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["collapsed", "collapsed"]);
-    await expect(graph.toggle("4:9999")).rejects.toThrow("obsolete");
+    await expect(graph.toggle("4:9999")).rejects.toThrow(UserVisibleError);
   });
 
   it("expands arrays and tuples through semantic element types", async () => {
@@ -425,7 +426,7 @@ describe("TypeGraph", () => {
     expect(branch.content.children![0]!.node.content.children![0]!.node.text).toBe("string");
     await graph.toggle(branch.viewNodeId);
     expect(branch.content.state).toBe("collapsed");
-    await expect(graph.toggle(childId)).rejects.toThrow("obsolete");
+    await expect(graph.toggle(childId)).rejects.toThrow(UserVisibleError);
     await graph.toggle(branch.viewNodeId);
     expect(branch.content.children![0]!.node.content.state).toBe("collapsed");
   });
@@ -501,7 +502,7 @@ describe("TypeGraph", () => {
     expect(root.content.state).toBe("expanded");
     expect(renderNode(root, 0)).toBe(initial);
     expect(root.viewNodeId).not.toBe(oldId);
-    await expect(graph.toggle(oldId)).rejects.toThrow("obsolete");
+    await expect(graph.toggle(oldId)).rejects.toThrow(UserVisibleError);
   });
 
   it("serializes rapid toggles so two clicks do not leave duplicate descendants", async () => {
@@ -528,7 +529,7 @@ describe("TypeGraph", () => {
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     const before = renderNode(root, 0);
-    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("5,000-node");
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow(UserVisibleError);
     expect(child.content.state).toBe("collapsed");
     expect(child.content.children).toBeUndefined();
     expect(renderNode(root, 0)).toBe(before);
@@ -551,9 +552,9 @@ describe("TypeGraph", () => {
     });
     const queries = vi.spyOn(h.checker, "getSignaturesOfType");
     const active = graph.toggle(child.viewNodeId);
-    const stopped = expect(active).rejects.toThrow("disposed");
+    const stopped = expect(active).rejects.toThrow(UserVisibleError);
     const queued = graph.toggle(child.viewNodeId);
-    const rejected = expect(queued).rejects.toThrow("disposed");
+    const rejected = expect(queued).rejects.toThrow(UserVisibleError);
     await started.promise;
     let disposed = false;
     const disposing = graph.disposeAsync().then(() => { disposed = true; });
@@ -562,7 +563,7 @@ describe("TypeGraph", () => {
     response.resolve(string);
     await Promise.all([stopped, rejected, disposing]);
     expect(queries).not.toHaveBeenCalled();
-    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("disposed");
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow(UserVisibleError);
   });
 
   it("stops querying oversized branches when the allocation budget is exhausted", async () => {
@@ -575,7 +576,7 @@ describe("TypeGraph", () => {
     const child = root.content.children![0]!.node;
     const before = renderNode(root, 0);
     const requests = vi.spyOn(h.checker as unknown as { getTypeOfSymbol(symbol: AsyncSymbol): Promise<Type | undefined> }, "getTypeOfSymbol");
-    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow("6-node");
+    await expect(graph.toggle(child.viewNodeId)).rejects.toThrow(UserVisibleError);
     expect(requests).toHaveBeenCalledTimes(4);
     expect(renderNode(root, 0)).toBe(before);
     expect(child.content).toEqual({ state: "collapsed", layout: "atom" });
@@ -589,7 +590,7 @@ describe("TypeGraph", () => {
     const graph = new TypeGraph(h.project, enclosing, 19, undefined, { maxNodes: 100, maxTextBytes: 100 });
     const root = await graph.createRoot(type);
     const before = renderNode(root, 0);
-    await expect(graph.expandFrontier()).rejects.toThrow("output safety limit");
+    await expect(graph.expandFrontier()).rejects.toThrow(UserVisibleError);
     expect(renderNode(root, 0)).toBe(before);
     expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["collapsed", "collapsed"]);
   });

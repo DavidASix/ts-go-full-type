@@ -158,11 +158,16 @@ export async function run(): Promise<void> {
 
   await vscode.commands.executeCommand("workbench.action.files.revert");
 
-  const targetUri = vscode.Uri.file("/home/davidasix/BigRiverAnalytics/rigc-base/src/server/datasets/virtual/types.ts");
+  const acceptanceFile = process.env.FULL_TYPE_VIEWER_ACCEPTANCE_FILE;
+  if (acceptanceFile) await runAcceptanceSuite(api, acceptanceFile);
+}
+
+async function runAcceptanceSuite(api: FullTypeViewerTestingAPI, acceptanceFile: string): Promise<void> {
+  const targetUri = vscode.Uri.file(acceptanceFile);
   const targetDocument = await vscode.workspace.openTextDocument(targetUri);
   const targetEditor = await vscode.window.showTextDocument(targetDocument);
   await focusAlias(targetEditor, targetDocument, "VirtualDatasetCell");
-  state = await waitForSuccess(api, "VirtualDatasetCell");
+  let state = await waitForSuccess(api, "VirtualDatasetCell");
   assert.ok(state.result.project.endsWith("rigc-base/tsconfig.json"), "real configured project is selected");
   const initialRaw = state.rawText;
   for (const discriminant of [

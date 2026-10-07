@@ -30,6 +30,17 @@ npm run package
 code-insiders --install-extension ts-full-type-viewer-0.0.4.vsix --force
 ```
 
-The integration suite uses the locally installed VS Code Insiders and
-`TypeScriptTeam.native-preview@1.0.1`, the repository fixtures, and the local
-`rigc-base` acceptance project.
+The integration suite runs against the repository fixtures. It discovers VS Code
+Insiders on `PATH` and `TypeScriptTeam.native-preview@1.0.1` in the current user's
+Insiders extensions directory. Temporary test profiles are removed after each run.
+For a different installation, set `FULL_TYPE_VIEWER_VSCODE` to the executable and
+`FULL_TYPE_VIEWER_NATIVE_EXTENSION` to the native extension directory.
+
+The external `rigc-base` acceptance suite is optional:
+
+```sh
+FULL_TYPE_VIEWER_ACCEPTANCE_FILE=/path/to/rigc-base/src/server/datasets/virtual/types.ts npm run test:integration
+```
+
+The extension intentionally targets Linux x64, VS Code Insiders, and the pinned
+TypeScript 7 native preview. Other compiler/protocol versions are unsupported.

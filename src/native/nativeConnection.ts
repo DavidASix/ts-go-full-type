@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { API } from "typescript/unstable/async";
+import { assertRequestActive, awaitWhileActive } from "../shared/cancellation";
 import { UserVisibleError, isLikelyConnectionError } from "../shared/errors";
 import {
   activateNativeExtension,
@@ -70,20 +71,24 @@ export class NativeConnection implements vscode.Disposable {
     return this.connecting;
   }
 
-  public async runWithReconnect<T>(operation: (connection: ConnectedAPI) => Promise<T>): Promise<T> {
-    const initial = await this.get();
+  public async runWithReconnect<T>(operation: (connection: ConnectedAPI) => Promise<T>, signal = new AbortController().signal): Promise<T> {
+    assertRequestActive(signal);
+    const initial = await awaitWhileActive(this.get(), signal);
+    assertRequestActive(signal);
     const initialEpoch = this.serverEpoch;
     try {
       return await operation(initial);
     } catch (error) {
+      assertRequestActive(signal);
       if (!isLikelyConnectionError(error)) {
         throw error;
       }
       if (this.isCurrent(initial)) {
         this.invalidateClient();
       }
-      await this.waitForReadyAfter(initialEpoch);
-      const replacement = await this.get();
+      await awaitWhileActive(this.waitForReadyAfter(initialEpoch), signal);
+      assertRequestActive(signal);
+      const replacement = await awaitWhileActive(this.get(), signal);
       try {
         return await operation(replacement);
       } catch (retryError) {

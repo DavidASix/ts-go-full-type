@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { RequestCancelledError } from "../shared/cancellation";
 import { errorMessage, UserVisibleError } from "../shared/errors";
 import { CompleteTypeProvider } from "../native/completeTypeProvider";
 import { FullTypeViewProvider } from "../sidebar/fullTypeViewProvider";
@@ -15,6 +16,7 @@ export class FocusController implements vscode.Disposable {
   private readonly generation = new ResolutionGeneration();
   private focusCache: SymbolFocusCache | undefined;
   private disposed = false;
+  private cancellation = new AbortController();
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
@@ -86,6 +88,8 @@ export class FocusController implements vscode.Disposable {
     if (!force && this.isSameCachedSymbol(editor.document, offset)) {
       return;
     }
+    this.focusCache = undefined;
+    void this.expansion.replace(undefined);
     this.generation.schedule(250, (generation) => void this.resolve(generation, force));
   }
 
@@ -119,8 +123,13 @@ export class FocusController implements vscode.Disposable {
     const word = editor.document.getText(editor.document.getWordRangeAtPosition(position));
     this.view.setState({ kind: "loading", message: `Resolving ${word || "symbol"}...` });
     try {
+      const uri = editor.document.uri.toString();
+      const version = editor.document.version;
       const session = await this.provider.resolve({
-        document: editor.document,
+        uri,
+        version,
+        text: editor.document.getText(),
+        signal: this.cancellation.signal,
         offset,
         generation,
       });
@@ -130,24 +139,24 @@ export class FocusController implements vscode.Disposable {
       }
       if (session === undefined) {
         this.focusCache = undefined;
-        await this.expansion.replace(undefined);
         this.view.setState({ kind: "idle", message: IDLE_MESSAGE });
+        await this.expansion.replace(undefined);
         return;
       }
       this.focusCache = {
-        uri: editor.document.uri.toString(),
-        version: editor.document.version,
+        uri,
+        version,
         start: session.focus.start,
         end: session.focus.end,
       };
       await this.expansion.replace(session);
     } catch (error) {
-      if (this.isStale(generation)) {
+      if (this.isStale(generation) || error instanceof RequestCancelledError) {
         return;
       }
-      await this.expansion.replace(undefined);
       const message = errorMessage(error);
       this.view.setState({ kind: "error", message });
+      await this.expansion.replace(undefined);
       if (!(error instanceof UserVisibleError)) {
         void vscode.window.showErrorMessage(`Full Type Viewer: ${message}`);
       }
@@ -156,8 +165,8 @@ export class FocusController implements vscode.Disposable {
 
   private async showIdle(): Promise<void> {
     this.focusCache = undefined;
-    await this.expansion.replace(undefined);
     this.view.setState({ kind: "idle", message: IDLE_MESSAGE });
+    await this.expansion.replace(undefined);
   }
 
   private isSameCachedSymbol(document: vscode.TextDocument, offset: number): boolean {
@@ -170,6 +179,8 @@ export class FocusController implements vscode.Disposable {
   }
 
   private invalidate(): void {
+    this.cancellation.abort();
+    this.cancellation = new AbortController();
     this.generation.invalidate();
   }
 

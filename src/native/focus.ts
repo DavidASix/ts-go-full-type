@@ -50,13 +50,7 @@ function resolutionTypeNodeForToken(token: Node): { readonly typeNode?: TypeNode
   if (isTypeAliasDeclaration(token.parent) && token.parent.name === token) {
     return { typeNode: token.parent.type };
   }
-  for (let current: Node | undefined = token.parent; current !== undefined; current = current.parent) {
-    if (isTypeReferenceNode(current)) {
-      return { typeNode: current };
-    }
-    if (current.kind === SyntaxKind.SourceFile || current.parent === current) {
-      break;
-    }
-  }
-  return {};
+  let name = token;
+  while (name.parent.kind === SyntaxKind.QualifiedName) name = name.parent;
+  return isTypeReferenceNode(name.parent) ? { typeNode: name.parent } : {};
 }

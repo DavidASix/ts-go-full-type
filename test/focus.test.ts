@@ -86,6 +86,36 @@ describe("symbol focus qualification", () => {
     expect(qualifySymbolToken(sourceFile, token, start)?.typeNode).toBeUndefined();
   });
 
+  it("resolves nested declaration names at their own position instead of an outer generic", () => {
+    const text = "type Shape = Array<{ value: string }>";
+    const start = text.indexOf("value");
+    const sourceFile = { text } as SourceFile;
+    const outer = { kind: SyntaxKind.TypeReference } as Node;
+    const literal = { kind: SyntaxKind.TypeLiteral, parent: outer } as Node;
+    const property = { kind: SyntaxKind.PropertySignature, parent: literal } as Node;
+    const token = { kind: SyntaxKind.Identifier, text: "value", parent: property,
+      getStart: () => start, getEnd: () => start + 5 } as unknown as Node;
+    expect(qualifySymbolToken(sourceFile, token, start)?.typeNode).toBeUndefined();
+  });
+
+  it("preserves qualified reference instantiation without treating type-query operands as the outer reference", () => {
+    const text = "type Shape = Box<typeof source>; type Other = NS.Example<string>";
+    const sourceFile = { text } as SourceFile;
+    const outer = { kind: SyntaxKind.TypeReference } as Node;
+    const query = { kind: SyntaxKind.TypeQuery, parent: outer } as Node;
+    const start = text.indexOf("source");
+    const operand = { kind: SyntaxKind.Identifier, text: "source", parent: query,
+      getStart: () => start, getEnd: () => start + 6 } as unknown as Node;
+    expect(qualifySymbolToken(sourceFile, operand, start)?.typeNode).toBeUndefined();
+
+    const reference = { kind: SyntaxKind.TypeReference } as Node;
+    const qualified = { kind: SyntaxKind.QualifiedName, parent: reference } as Node;
+    const referenceStart = text.indexOf("Example");
+    const name = { kind: SyntaxKind.Identifier, text: "Example", parent: qualified,
+      getStart: () => referenceStart, getEnd: () => referenceStart + 7 } as unknown as Node;
+    expect(qualifySymbolToken(sourceFile, name, referenceStart)?.typeNode).toBe(reference);
+  });
+
   it("rejects non-identifiers and offsets outside the token", () => {
     const text = "const value = 1;";
     const sourceFile = { text } as SourceFile;

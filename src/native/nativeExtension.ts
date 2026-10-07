@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { UserVisibleError } from "../shared/errors";
-import { isRecord } from "../shared/protocol";
+import { isRecord } from "../shared/records";
 
 export const NATIVE_EXTENSION_ID = "TypeScriptTeam.native-preview";
 

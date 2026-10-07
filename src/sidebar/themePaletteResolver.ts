@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isRecord } from "../shared/records";
 import {
   emptyThemeData,
   mergeThemeData,
@@ -40,9 +41,9 @@ export async function resolveActiveThemeTokenPalette(): Promise<ThemeTokenPalett
  */
 function findThemeContribution(activeTheme: string): { readonly uri: vscode.Uri } | undefined {
   for (const extension of vscode.extensions.all) {
-    const packageJson = asRecord(extension.packageJSON);
-    const contributes = asRecord(packageJson?.contributes);
-    const themes = contributes?.themes;
+    const packageJson: unknown = extension.packageJSON;
+    if (!isRecord(packageJson) || !isRecord(packageJson.contributes)) continue;
+    const themes = packageJson.contributes.themes;
     if (!Array.isArray(themes)) {
       continue;
     }
@@ -86,23 +87,12 @@ async function loadTheme(uri: vscode.Uri, visited: Set<string>): Promise<ThemeDa
  * @param value Untrusted value to validate or normalize.
  */
 function asThemeContribution(value: unknown): ThemeContribution | undefined {
-  const record = asRecord(value);
-  if (record === undefined) {
+  if (!isRecord(value)) {
     return undefined;
   }
   return {
-    ...(typeof record.id === "string" ? { id: record.id } : {}),
-    ...(typeof record.label === "string" ? { label: record.label } : {}),
-    ...(typeof record.path === "string" ? { path: record.path } : {}),
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+    ...(typeof value.label === "string" ? { label: value.label } : {}),
+    ...(typeof value.path === "string" ? { path: value.path } : {}),
   };
-}
-
-/**
- * Accept non-null objects while rejecting arrays and primitive values.
- * @param value Untrusted value to validate or normalize.
- */
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }

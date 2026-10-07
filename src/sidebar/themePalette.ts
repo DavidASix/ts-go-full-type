@@ -1,3 +1,5 @@
+import { isRecord } from "../shared/records";
+
 export interface ThemeTokenPalette {
   readonly keyword?: string;
   readonly type?: string;
@@ -284,8 +286,4 @@ function isTextMateRule(value: unknown): value is TextMateRule {
   return (scope === undefined || typeof scope === "string" ||
       (Array.isArray(scope) && scope.every((entry) => typeof entry === "string"))) &&
     (settings === undefined || isRecord(settings));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

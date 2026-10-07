@@ -1,3 +1,5 @@
+import { isRecord } from "./records";
+
 export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple" | "details";
 
 export interface TypeRenderEdge {
@@ -82,8 +84,4 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     return { type: "toggle", viewNodeId: value.viewNodeId };
   }
   return undefined;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

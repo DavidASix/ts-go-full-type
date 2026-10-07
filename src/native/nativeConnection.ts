@@ -142,15 +142,20 @@ export class NativeConnection implements vscode.Disposable {
     await this.closing;
     this.assertAlive();
     const epoch = this.serverEpoch;
-    const pipe = await this.nativeAPI!.initializeAPIConnection();
-    this.assertAlive();
-    if (typeof pipe !== "string" || pipe.length === 0) {
-      throw new UserVisibleError("TypeScript 7 did not return an API pipe. Ensure js/ts.experimental.useTsgo is enabled.");
-    }
     let client: API<true>;
     try {
+      const pipe = await this.nativeAPI!.initializeAPIConnection();
+      this.assertAlive();
+      if (typeof pipe !== "string" || pipe.length === 0) {
+        throw new UserVisibleError("TypeScript 7 did not return an API pipe. Ensure js/ts.experimental.useTsgo is enabled.");
+      }
       client = await this.dependencies.connect(pipe);
     } catch (error) {
+      this.assertAlive();
+      if (epoch !== this.serverEpoch) {
+        throw new InterruptedHandshakeError("The TypeScript 7 server restarted while connecting. Refresh the type and try again.", { cause: error });
+      }
+      if (error instanceof UserVisibleError) throw error;
       throw new UserVisibleError("Could not connect to the TypeScript 7 API pipe. Restart the TypeScript language server and retry.", { cause: error });
     }
     if (this.disposed || epoch !== this.serverEpoch) {

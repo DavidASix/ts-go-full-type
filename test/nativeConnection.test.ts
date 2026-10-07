@@ -17,7 +17,7 @@ function setup(connect = vi.fn(async () => client()), ready = true) {
     initializeAPIConnection: vi.fn(async () => "/test-pipe"),
   } as unknown as NativePreviewExtensionAPI;
   const connection = new NativeConnection({ activate: async () => native, connect });
-  return { connection, restart: () => initialized(), connect, unsubscribe };
+  return { connection, restart: () => initialized(), connect, unsubscribe, native };
 }
 function client() {
   return { close: vi.fn(async () => undefined) } as unknown as API<true>;
@@ -80,6 +80,43 @@ describe("native connection ownership", () => {
     expect(late.close).toHaveBeenCalledOnce();
     expect(connect).toHaveBeenCalledTimes(2);
     await connection.disposeAsync();
+  });
+
+  it("retries a rejected handshake after initialization of a replacement server", async () => {
+    const handshake = deferred<API<true>>();
+    const started = deferred<void>();
+    const replacement = client();
+    const connect = vi.fn(async () => replacement).mockImplementationOnce(() => {
+      started.resolve(); return handshake.promise;
+    });
+    const h = setup(connect);
+    const getting = h.connection.get();
+    await started.promise;
+    h.restart();
+    handshake.reject(new Error("socket closed"));
+    const current = await getting;
+    expect(current.api).toBe(replacement);
+    expect(h.connection.isCurrent(current)).toBe(true);
+    expect(connect).toHaveBeenCalledTimes(2);
+    await h.connection.disposeAsync();
+  });
+
+  it("retries pipe initialization rejected by a superseded server", async () => {
+    const h = setup();
+    const pipe = deferred<string>();
+    const started = deferred<void>();
+    vi.mocked(h.native.initializeAPIConnection).mockImplementationOnce(() => {
+      started.resolve(); return pipe.promise;
+    });
+    const getting = h.connection.get();
+    await started.promise;
+    h.restart();
+    pipe.reject(new Error("connection closed"));
+    const current = await getting;
+    expect(h.connection.isCurrent(current)).toBe(true);
+    expect(h.native.initializeAPIConnection).toHaveBeenCalledTimes(2);
+    expect(h.connect).toHaveBeenCalledOnce();
+    await h.connection.disposeAsync();
   });
 
   it("limits handshake retries when the server keeps restarting", async () => {

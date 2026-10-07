@@ -50,6 +50,23 @@ describe("rendering", () => {
     expect(raw).not.toContain("<button");
   });
 
+  it.each(["tuple", "details"] as const)("copies expanded descendants through %s compiler syntax", (layout) => {
+    const child: TypeRenderNode = {
+      viewNodeId: "2:2", text: "Payload",
+      content: { state: "expanded", layout: "object", children: [{ label: "value", node: leaf }] },
+    };
+    const root: TypeRenderNode = {
+      viewNodeId: "", text: "Container",
+      content: { state: "expanded", layout, children: [{ node: child }],
+        expressionText: "[Payload]",
+        expression: ["[", { path: [0], fallback: "Payload" }, "]"] },
+    };
+    const raw = renderCompleteType({ ...result, root });
+    expect(raw).toContain("value: string;");
+    expect(raw).toContain("[");
+    expect(raw).toContain("]");
+  });
+
   it("classifies compiler text without treating it as HTML", () => {
     const segments = tokenizeTypeScript(`{ display_name?: Record<string, "<script>">; kind: Cell.STRING; }`);
     expect(segments).toEqual(expect.arrayContaining([

@@ -3,12 +3,14 @@ import {
   SignatureKind,
   SymbolFlags,
   type Checker,
+  type Project,
   type Symbol as AsyncSymbol,
   type Type,
   type Signature,
   type IndexInfo,
 } from "typescript/unstable/async";
-import type { Node } from "typescript/unstable/ast";
+import { isIdentifier, isTupleTypeNode, isTypeReferenceNode, type Node } from "typescript/unstable/ast";
+import { createIdentifier, createTupleTypeNode, createTypeReferenceNode } from "typescript/unstable/ast/factory";
 import { TypeGraph, quotePropertyName } from "../src/native/typeGraph";
 import { renderNode } from "../src/sidebar/renderText";
 
@@ -36,6 +38,7 @@ interface FakeModel {
 }
 
 function createHarness() {
+  const syntax = new Map<number, Node>();
   const models = new Map<number, FakeModel>();
   let nextId = 1;
 
@@ -120,6 +123,8 @@ function createHarness() {
   }
 
   const checker = {
+    typeToTypeNode: async (value: Type) => syntax.get(value.id),
+    signatureToSignatureDeclaration: async () => undefined,
     typeToString: async (value: Type) => model(value).text,
     getPropertiesOfType: async (value: Type) => model(value).properties.map((entry) => entry.symbol),
     getTypeOfSymbol: async (symbol: AsyncSymbol) => {
@@ -155,7 +160,12 @@ function createHarness() {
   function index(owner: Type, keyType: Type, valueType: Type): void {
     model(owner).indexes.push({ keyType, valueType, isReadonly: false });
   }
-  return { checker, type, property, members, arguments_, aliasArguments, signature, index, model };
+  const emitter = { printNode: async (node: Node): Promise<string> => {
+    if (isTupleTypeNode(node)) return `[${node.elements.map((element) => isTypeReferenceNode(element) ? (isIdentifier(element.typeName) ? element.typeName.text : "unknown") : "unknown").join(", ")}]`;
+    if (isTypeReferenceNode(node)) return isIdentifier(node.typeName) ? node.typeName.text : "unknown";
+    throw new Error("Unexpected fixture syntax");
+  } };
+  return { syntax, project: { checker, emitter } as Project, checker, type, property, members, arguments_, aliasArguments, signature, index, model };
 }
 
 import { deferred } from "./support/deferred";
@@ -163,6 +173,20 @@ import { deferred } from "./support/deferred";
 const enclosing = {} as Node;
 
 describe("TypeGraph", () => {
+  it("copies a tuple descendant expanded through native compiler syntax", async () => {
+    const h = createHarness();
+    const payload = h.type("Payload", "object", { named: true });
+    h.property(payload, "value", h.type("string"));
+    const tuple = h.type("[Payload]", "tuple");
+    h.arguments_(tuple, payload);
+    h.syntax.set(tuple.id, createTupleTypeNode([createTypeReferenceNode(createIdentifier("Payload"))]));
+    const graph = new TypeGraph(h.project, enclosing, 50);
+    const root = await graph.createRoot(tuple);
+    expect(renderNode(root, 0)).not.toContain("value: string;");
+    await graph.toggle(root.content.children![0]!.node.viewNodeId);
+    expect(renderNode(root, 0)).toContain("value: string;");
+  });
+
   it("renders every root union member and every immediate property", async () => {
     const h = createHarness();
     const string = h.type("string");
@@ -174,7 +198,7 @@ describe("TypeGraph", () => {
     h.property(b, "count", h.type("number | undefined"), true);
     const rootType = h.type("Root", "union", { named: true });
     h.members(rootType, a, b);
-    const graph = new TypeGraph(h.checker, enclosing, 7);
+    const graph = new TypeGraph(h.project, enclosing, 7);
     const root = await graph.createRoot(rootType);
     const text = renderNode(root, 0);
     expect(text).toContain('kind: "a"');
@@ -192,7 +216,7 @@ describe("TypeGraph", () => {
     h.property(right, "right", h.type("number"));
     const rootType = h.type("Combined", "intersection");
     h.members(rootType, left, right);
-    const root = await new TypeGraph(h.checker, enclosing, 8).createRoot(rootType);
+    const root = await new TypeGraph(h.project, enclosing, 8).createRoot(rootType);
     const text = renderNode(root, 0);
     expect(root.content.layout).toBe("intersection");
     expect(root.content.children).toHaveLength(2);
@@ -207,7 +231,7 @@ describe("TypeGraph", () => {
     h.property(named, "not-valid", h.type("number"), true);
     const rootType = h.type("Root", "union");
     h.members(rootType, named);
-    const root = await new TypeGraph(h.checker, enclosing, 1).createRoot(rootType);
+    const root = await new TypeGraph(h.project, enclosing, 1).createRoot(rootType);
     const text = renderNode(root, 0);
     expect(text).toContain("Named<string>");
     expect(text).toContain("normal: string");
@@ -223,7 +247,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "left", recursive);
     h.property(rootType, "right", recursive);
-    const graph = new TypeGraph(h.checker, enclosing, 3);
+    const graph = new TypeGraph(h.project, enclosing, 3);
     const root = await graph.createRoot(rootType);
     const left = root.content.children![0]!.node;
     const right = root.content.children![1]!.node;
@@ -246,7 +270,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "first", middle);
     h.property(rootType, "second", middle);
-    const graph = new TypeGraph(h.checker, enclosing, 4);
+    const graph = new TypeGraph(h.project, enclosing, 4);
     const root = await graph.createRoot(rootType);
     await graph.expandFrontier();
     expect(root.content.children!.map((edge) => edge.node.content.state)).toEqual(["expanded", "expanded"]);
@@ -267,7 +291,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "items", array);
     h.property(rootType, "pair", tuple);
-    const graph = new TypeGraph(h.checker, enclosing, 5);
+    const graph = new TypeGraph(h.project, enclosing, 5);
     const root = await graph.createRoot(rootType);
     await graph.toggle(root.content.children![0]!.node.viewNodeId);
     await graph.toggle(root.content.children![1]!.node.viewNodeId);
@@ -286,7 +310,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "immutable", immutable);
     h.property(rootType, "mutable", mutable);
-    const graph = new TypeGraph(h.checker, enclosing, 20);
+    const graph = new TypeGraph(h.project, enclosing, 20);
     const root = await graph.createRoot(rootType);
     await graph.expandFrontier();
     const copied = renderNode(root, 0);
@@ -303,7 +327,7 @@ describe("TypeGraph", () => {
     h.property(generic, "value", h.type("string"));
     const rootType = h.type("Root", "object");
     h.property(rootType, "generic", generic);
-    const root = await new TypeGraph(h.checker, enclosing, 9).createRoot(rootType);
+    const root = await new TypeGraph(h.project, enclosing, 9).createRoot(rootType);
     expect(root.content.children![0]!.node.text).toBe("Box<string>");
   });
 
@@ -316,7 +340,7 @@ describe("TypeGraph", () => {
     const rootType = h.type("Root", "object");
     h.property(rootType, "values", array);
     h.property(rootType, "pair", tuple);
-    const graph = new TypeGraph(h.checker, enclosing, 10);
+    const graph = new TypeGraph(h.project, enclosing, 10);
     const root = await graph.createRoot(rootType);
     await graph.expandFrontier();
     expect(root.content.children![0]!.node.content.children![0]!.node).toMatchObject({ text: "string", content: { state: "leaf", layout: "atom" } });
@@ -332,7 +356,7 @@ describe("TypeGraph", () => {
     h.property(member, "nested", nested);
     const union = h.type("Union", "union");
     h.members(union, member, h.type("null"));
-    const graph = new TypeGraph(h.checker, enclosing, 11);
+    const graph = new TypeGraph(h.project, enclosing, 11);
     const root = await graph.createRoot(union);
     const branch = root.content.children![0]!.node;
     const childId = branch.content.children![0]!.node.viewNodeId;
@@ -355,7 +379,7 @@ describe("TypeGraph", () => {
     h.signature(callable, SignatureKind.Call, [["input", string]], nested);
     h.signature(callable, SignatureKind.Construct, [], nested);
     h.index(callable, string, nested);
-    const graph = new TypeGraph(h.checker, enclosing, 12);
+    const graph = new TypeGraph(h.project, enclosing, 12);
     const root = await graph.createRoot(callable);
     expect(root.content.children!.map((edge) => edge.label)).toEqual(["label", "call", "new", "[key: string]"]);
     await graph.toggle(root.content.children![1]!.node.viewNodeId);
@@ -375,7 +399,7 @@ describe("TypeGraph", () => {
     const constraint = h.type("{ id: string }", "object");
     h.property(constraint, "id", h.type("string"));
     h.model(parameter).constraint = constraint;
-    const graph = new TypeGraph(h.checker, enclosing, 13);
+    const graph = new TypeGraph(h.project, enclosing, 13);
     const root = await graph.createRoot(parameter);
     expect(root.content.children![0]!.label).toBe("constraint");
     await graph.toggle(root.content.children![0]!.node.viewNodeId);
@@ -390,7 +414,7 @@ describe("TypeGraph", () => {
     h.aliasArguments(generic, payload);
     const type = h.type("Root", "object");
     h.property(type, "generic", generic);
-    const graph = new TypeGraph(h.checker, enclosing, 17);
+    const graph = new TypeGraph(h.project, enclosing, 17);
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     expect(child.content.state).toBe("collapsed");
@@ -406,7 +430,7 @@ describe("TypeGraph", () => {
     const h = createHarness();
     const type = h.type("{ value: string }", "object");
     h.property(type, "value", h.type("string"));
-    const graph = new TypeGraph(h.checker, enclosing, 14);
+    const graph = new TypeGraph(h.project, enclosing, 14);
     const root = await graph.createRoot(type);
     const initial = renderNode(root, 0);
     const oldId = root.viewNodeId;
@@ -425,7 +449,7 @@ describe("TypeGraph", () => {
     h.property(nested, "value", h.type("string"));
     const type = h.type("Root", "object");
     h.property(type, "nested", nested);
-    const graph = new TypeGraph(h.checker, enclosing, 15);
+    const graph = new TypeGraph(h.project, enclosing, 15);
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     await Promise.all([graph.toggle(child.viewNodeId), graph.toggle(child.viewNodeId)]);
@@ -439,7 +463,7 @@ describe("TypeGraph", () => {
     for (let index = 0; index < 5000; index++) h.property(large, `value${index}`, h.type("string"));
     const type = h.type("Root", "object");
     h.property(type, "large", large);
-    const graph = new TypeGraph(h.checker, enclosing, 16);
+    const graph = new TypeGraph(h.project, enclosing, 16);
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     const before = renderNode(root, 0);
@@ -455,7 +479,7 @@ describe("TypeGraph", () => {
     h.property(nested, "value", string);
     const type = h.type("Root", "object");
     h.property(type, "nested", nested);
-    const graph = new TypeGraph(h.checker, enclosing, 17);
+    const graph = new TypeGraph(h.project, enclosing, 17);
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     const started = deferred<void>();
@@ -485,7 +509,7 @@ describe("TypeGraph", () => {
     const large = h.type("Large", "object");
     for (let index = 0; index < 40; index++) h.property(large, `value${index}`, h.type("string"));
     const type = h.type("Root", "object"); h.property(type, "large", large);
-    const graph = new TypeGraph(h.checker, enclosing, 18, undefined, { maxNodes: 6, maxTextBytes: 10000 });
+    const graph = new TypeGraph(h.project, enclosing, 18, undefined, { maxNodes: 6, maxTextBytes: 10000 });
     const root = await graph.createRoot(type);
     const child = root.content.children![0]!.node;
     const before = renderNode(root, 0);
@@ -501,7 +525,7 @@ describe("TypeGraph", () => {
     const small = h.type("Small", "object"); h.property(small, "value", h.type("string"));
     const large = h.type("Large", "object"); h.property(large, "value", h.type('"' + "é".repeat(40) + '"'));
     const type = h.type("Root", "object"); h.property(type, "first", small); h.property(type, "second", large);
-    const graph = new TypeGraph(h.checker, enclosing, 19, undefined, { maxNodes: 100, maxTextBytes: 100 });
+    const graph = new TypeGraph(h.project, enclosing, 19, undefined, { maxNodes: 100, maxTextBytes: 100 });
     const root = await graph.createRoot(type);
     const before = renderNode(root, 0);
     await expect(graph.expandFrontier()).rejects.toThrow("output safety limit");

@@ -3,15 +3,17 @@ import {
   SignatureKind,
   SymbolFlags,
   type Checker,
+  type Project,
   type Signature,
   type Type,
 } from "typescript/unstable/async";
-import type { Node } from "typescript/unstable/ast";
+import { SyntaxKind, type Node } from "typescript/unstable/ast";
 import { settleQueries } from "../shared/async";
 import { UserVisibleError } from "../shared/errors";
-import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode } from "../shared/protocol";
+import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode, TypeExpressionPart } from "../shared/protocol";
 import { DEFAULT_GRAPH_LIMITS, GraphBudget, type GraphLimits } from "./graphBudget";
 import { isReadonlyProperty } from "./propertyModifiers";
+import { buildTypeExpression } from "./typeExpression";
 import { hasPresentationTruncation } from "./truncation";
 
 const PRINT_FLAGS = NodeBuilderFlags.NoTruncation |
@@ -21,6 +23,7 @@ interface Materialized {
   readonly layout: Exclude<NodeLayout, "atom">;
   readonly children: readonly TypeRenderEdge[];
   readonly expressionText?: string;
+  readonly expression?: readonly TypeExpressionPart[] | undefined;
   readonly readonly?: boolean;
 }
 
@@ -42,12 +45,22 @@ export class TypeGraph {
   private budget = new GraphBudget(DEFAULT_GRAPH_LIMITS);
 
   public constructor(
-    private readonly checker: Checker,
+    private readonly project: Pick<Project, "checker" | "emitter">,
     private readonly enclosingDeclaration: Node,
     private readonly generation: number,
     private readonly checkRequest: () => void = () => {},
     private readonly limits: GraphLimits = DEFAULT_GRAPH_LIMITS,
   ) {}
+
+  private get checker(): Checker { return this.project.checker; }
+
+  /** Build a compiler-printed expression with slots for semantic descendants. */
+  private async expression(type: Type, children: readonly TypeRenderEdge[]): Promise<readonly TypeExpressionPart[] | undefined> {
+    const syntax = await this.query(() => this.checker.typeToTypeNode(type, this.enclosingDeclaration, PRINT_FLAGS));
+    if (syntax === undefined) return undefined;
+    if (type.isTypeParameter() && children.length > 0) return [await this.print(type), " & ", { path: [0], fallback: children[0]!.node.text }];
+    return buildTypeExpression(syntax, children, (node) => this.query(() => this.project.emitter.printNode(node)));
+  }
 
   public async createRoot(type: Type): Promise<TypeRenderNode> {
     this.registry.clear();
@@ -136,6 +149,7 @@ export class TypeGraph {
     try {
       const materialized = await entry.load();
       if (materialized.expressionText !== undefined) this.budget.addText(materialized.expressionText);
+      if (materialized.expression !== undefined) this.budget.addText(expressionText(materialized.expression));
       entry.node.content = { state: "expanded", ...materialized };
       // Keep the complete immediate root union shape visible on first focus.
       if (initial && (entry.node.content.layout === "union" || entry.node.content.layout === "intersection")) {
@@ -145,6 +159,7 @@ export class TypeGraph {
             const shape = await (child.loadBoundary ?? child.load)();
             if (shape.layout === "object" || shape.layout === "details") {
               if (shape.expressionText !== undefined) this.budget.addText(shape.expressionText);
+              if (shape.expression !== undefined) this.budget.addText(expressionText(shape.expression));
               child.node.content = { state: "expanded", ...shape };
             } else {
               this.collectIds(shape.children).forEach((id) => this.registry.delete(id));
@@ -176,7 +191,8 @@ export class TypeGraph {
     }
     if (await this.query(() => this.checker.isTupleType(type))) {
       const arguments_ = type.isTypeReference() ? await this.query(() => this.checker.getTypeArguments(type)) : [];
-      return { layout: "tuple", children: await this.createChildren(arguments_, ancestors), expressionText: await this.print(type) };
+      const children = await this.createChildren(arguments_, ancestors);
+      return { layout: "tuple", children, expressionText: await this.print(type), expression: await this.expression(type, children) };
     }
     if (await this.query(() => this.checker.isArrayType(type))) {
       const arguments_ = type.isTypeReference() ? await this.query(() => this.checker.getTypeArguments(type)) : [];
@@ -185,7 +201,8 @@ export class TypeGraph {
       return { layout: "array", children: await this.createChildren(arguments_.slice(0, 1), ancestors), readonly: symbol?.name === "ReadonlyArray" };
     }
     if (type.isObjectType()) return this.materializeObject(type, ancestors);
-    return { layout: "details", children: await this.typeDetails(type, ancestors), expressionText: await this.print(type) };
+    const children = await this.typeDetails(type, ancestors);
+    return { layout: "details", children, expressionText: await this.print(type), expression: await this.expression(type, children) };
   }
 
   private async materializeObject(type: Type, ancestors: readonly number[]): Promise<Materialized> {
@@ -207,13 +224,14 @@ export class TypeGraph {
       for (const [index, signature] of signatures.entries()) {
         const label = `${kind === SignatureKind.Call ? "call" : "new"}${signatures.length > 1 ? ` ${index + 1}` : ""}`;
         const node = this.register(label, () => this.materializeSignature(signature, ancestors));
-        children.push(this.edge({ label, node }));
+        children.push(this.edge({ role: kind === SignatureKind.Call ? "call" : "construct", label, node }));
       }
     }
     const indexes = await this.query(() => this.checker.getIndexInfosOfType(type));
     hasSignatures ||= indexes.length > 0;
     for (const index of indexes) {
       children.push(this.edge({
+        role: "index",
         label: `${index.isReadonly ? "readonly " : ""}[key: ${await this.print(index.keyType)}]`,
         node: await this.createChild(index.valueType, ancestors),
       }));
@@ -225,7 +243,7 @@ export class TypeGraph {
     // Preserve the compiler's callable/indexed syntax in copied output. The tree
     // still exposes each signature, parameter, return, and indexed value type.
     return { layout: hasSignatures ? "details" : "object", children,
-      ...(hasSignatures ? { expressionText: await this.print(type) } : {}) };
+      ...(hasSignatures ? { expressionText: await this.print(type), expression: await this.expression(type, children) } : {}) };
   }
 
   private async materializeSignature(signature: Signature, ancestors: readonly number[]): Promise<Materialized> {
@@ -247,7 +265,10 @@ export class TypeGraph {
     if (returnType !== undefined) children.push(this.edge({ label: "return", node: await this.createChild(returnType, ancestors) }));
     const predicate = await this.query(() => this.checker.getTypePredicateOfSignature(signature));
     if (predicate?.type !== undefined) children.push(this.edge({ label: "predicate", node: await this.createChild(predicate.type, ancestors) }));
-    return { layout: "details", children };
+    const syntax = await this.query(() => this.checker.signatureToSignatureDeclaration(signature, SyntaxKind.CallSignature, this.enclosingDeclaration, PRINT_FLAGS));
+    return { layout: "details", children,
+      ...(syntax === undefined ? {} : { expression: await buildTypeExpression(syntax, children, (node) => this.query(() => this.project.emitter.printNode(node))) }) };
+
   }
 
   private async typeDetails(type: Type, ancestors: readonly number[]): Promise<TypeRenderEdge[]> {
@@ -409,7 +430,7 @@ export class TypeGraph {
 
 function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
   let nodes = 1;
-  let size = Buffer.byteLength(node.text + (node.content.expressionText ?? ""), "utf8");
+  let size = Buffer.byteLength(node.text + (node.content.expressionText ?? "") + expressionText(node.content.expression ?? []), "utf8");
   if (node.content.state === "expanded") {
     for (const edge of node.content.children ?? []) {
       const child = measureTree(edge.node);
@@ -422,4 +443,9 @@ function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
 
 export function quotePropertyName(name: string): string {
   return /^[$A-Z_a-z][$\w]*$/u.test(name) ? name : JSON.stringify(name);
+}
+
+/** Account for both syntax fragments and collapsed slot fallbacks in graph limits. */
+function expressionText(parts: readonly TypeExpressionPart[]): string {
+  return parts.map((part) => typeof part === "string" ? part : part.fallback).join("");
 }

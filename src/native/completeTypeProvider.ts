@@ -160,7 +160,7 @@ export class CompleteTypeProvider implements vscode.Disposable {
       if (type === undefined) { await this.releaseSnapshot(snapshot); return undefined; }
       if (type.isErrorType()) throw new UserVisibleError("TypeScript 7 could not resolve a semantic type for this symbol.");
       let published = false;
-      const graph = new TypeGraph(project.checker, focus.node, request.generation, () => {
+      const graph = new TypeGraph(project, focus.node, request.generation, () => {
         if (!published) check();
         else if (!this.connection.isCurrent(connected)) throw new RequestCancelledError();
       });

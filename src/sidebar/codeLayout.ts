@@ -179,12 +179,25 @@ function renderLayout(node: TypeRenderNode, depth: number): MutableCodeLine[] {
     case "array":
       return renderArray(children, node.text, depth, node.content.readonly === true);
     case "tuple":
-      return compilerLines(node.content.expressionText ?? node.text, depth * 2);
     case "details":
-      return compilerLines(node.content.expressionText ?? node.text, depth * 2);
+      return renderExpression(node, depth);
     case "atom":
       return compilerLines(node.text, depth * 2);
   }
+}
+
+/** Substitute visible descendants into the compiler's preserved syntax. */
+function renderExpression(node: TypeRenderNode, depth: number): MutableCodeLine[] {
+  const parts = node.content.expression;
+  if (parts === undefined) return compilerLines(node.content.expressionText ?? node.text, depth * 2);
+  const value = parts.map((part) => {
+    if (typeof part === "string") return part;
+    let child: TypeRenderNode | undefined = node;
+    for (const index of part.path) child = child?.content.children?.[index]?.node;
+    if (child === undefined || child.content.state !== "expanded") return part.fallback;
+    return `(${serializeText(renderNode(child, 0))})`;
+  }).join("");
+  return compilerLines(value, depth * 2);
 }
 
 function renderObject(

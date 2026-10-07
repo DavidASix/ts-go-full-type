@@ -3,7 +3,7 @@ export type ViewNodeState = "leaf" | "collapsed" | "expanded" | "recursive";
 export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple" | "details";
 
 export interface TypeRenderEdge {
-  readonly role?: "typeArgument";
+  readonly role?: "typeArgument" | "call" | "construct" | "index";
   readonly label?: string;
   readonly optional?: boolean;
   readonly readonly?: boolean;
@@ -11,9 +11,12 @@ export interface TypeRenderEdge {
   readonly node: TypeRenderNode;
 }
 
+/** Compiler syntax fragments reference semantic descendants by their edge indexes. */
+export type TypeExpressionPart = string | { readonly path: readonly number[]; readonly fallback: string };
+
 export type NodeContent =
-  | { readonly state: "leaf" | "collapsed" | "recursive"; readonly layout: "atom"; readonly children?: never; readonly expressionText?: never }
-  | { readonly state: "expanded"; readonly layout: Exclude<NodeLayout, "atom">; readonly children: readonly TypeRenderEdge[]; readonly expressionText?: string; readonly readonly?: boolean };
+  | { readonly state: "leaf" | "collapsed" | "recursive"; readonly layout: "atom"; readonly children?: never; readonly expressionText?: never; readonly expression?: never }
+  | { readonly state: "expanded"; readonly layout: Exclude<NodeLayout, "atom">; readonly children: readonly TypeRenderEdge[]; readonly expressionText?: string; readonly expression?: readonly TypeExpressionPart[] | undefined; readonly readonly?: boolean };
 
 /** Renderers consume the graph's presentation; only TypeGraph replaces its content. */
 export interface TypeRenderNode {

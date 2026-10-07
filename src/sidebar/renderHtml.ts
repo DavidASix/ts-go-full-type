@@ -13,7 +13,7 @@ export interface HtmlResources {
 }
 
 export function renderHtml(state: ViewState, resources: HtmlResources): string {
-  const body = renderState(state, resources.wordWrap === true);
+  const body = renderViewContent(state, resources.wordWrap === true);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -27,9 +27,9 @@ export function renderHtml(state: ViewState, resources: HtmlResources): string {
     .message { box-sizing: border-box; padding: 12px; color: var(--vscode-descriptionForeground, var(--vscode-foreground)); font: 12px/1.45 var(--vscode-font-family); }
     .error { color: var(--vscode-errorForeground, var(--vscode-foreground)); }
     .notice { padding-bottom: 4px; }
+    #content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .scroll { box-sizing: border-box; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px; }
     .type-tree {
-${renderPaletteProperties(resources.palette)}
       margin: 0;
       padding: 0;
       list-style: none;
@@ -73,8 +73,11 @@ ${renderPaletteProperties(resources.palette)}
     body.vscode-high-contrast .tree-row:hover,
     body.vscode-high-contrast-light .tree-row:hover { outline: 1px solid var(--vscode-contrastActiveBorder, currentColor); outline-offset: -1px; }
   </style>
+  <style id="theme-palette" nonce="${escapeAttribute(resources.nonce)}">.type-tree {
+${renderPaletteProperties(resources.palette)}
+  }</style>
 </head>
-<body>${body}<script nonce="${escapeAttribute(resources.nonce)}" src="${escapeAttribute(resources.scriptUri.toString())}"></script></body>
+<body><main id="content">${body}</main><script nonce="${escapeAttribute(resources.nonce)}" src="${escapeAttribute(resources.scriptUri.toString())}"></script></body>
 </html>`;
 }
 
@@ -87,7 +90,7 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderState(state: ViewState, wordWrap: boolean): string {
+export function renderViewContent(state: ViewState, wordWrap: boolean): string {
   switch (state.kind) {
     case "idle":
     case "loading":
@@ -100,8 +103,8 @@ function renderState(state: ViewState, wordWrap: boolean): string {
         : `<div class="message error notice" role="alert">${escapeHtml(state.notice)}</div>`;
       const treeClass = wordWrap ? "type-tree word-wrap" : "type-tree";
       const source = state.result.sourceUri.split("/").at(-1) ?? state.result.sourceUri;
-      const metadata = `<details class="metadata"><summary>TypeScript ${escapeHtml(state.result.compilerVersion)} · ${escapeHtml(source)}</summary><div>${escapeHtml(state.result.sourceUri)}<br>Project: ${escapeHtml(state.result.project)}</div></details>`;
-      return `${notice}<div class="scroll">${metadata}<ul class="${treeClass}" role="tree" aria-label="${escapeAttribute(`Type of ${state.result.name}`)}" data-generation="${state.result.generation}">${renderTreeItem(buildTypeTree(state.result), 1, 1, 1)}</ul></div>`;
+      const metadata = `<details class="metadata" data-key="metadata"><summary>TypeScript ${escapeHtml(state.result.compilerVersion)} · ${escapeHtml(source)}</summary><div>${escapeHtml(state.result.sourceUri)}<br>Project: ${escapeHtml(state.result.project)}</div></details>`;
+      return `${notice}<div class="scroll" data-key="scroll">${metadata}<ul class="${treeClass}" role="tree" aria-label="${escapeAttribute(`Type of ${state.result.name}`)}" data-generation="${state.result.generation}">${renderTreeItem(buildTypeTree(state.result), 1, 1, 1)}</ul></div>`;
     }
   }
 }
@@ -116,7 +119,7 @@ function renderTreeItem(item: TypeTreeItem, level: number, position: number, siz
   const children = item.children.length === 0 ? "" : `<ul class="tree-group" role="group">${item.children.map((child, index) => renderTreeItem(child, level + 1, index + 1, item.children.length)).join("")}</ul>`;
   const note = item.node.note === undefined ? "" : `<div class="node-note">${escapeHtml(item.node.note)}</div>`;
   const ariaLabel = `${item.label}: ${item.summary}${item.node.content.state === "recursive" ? ", recursive reference" : ""}`;
-  return `<li role="none"><div class="tree-item${level === 1 ? " tree-root" : ""}" role="treeitem" tabindex="${level === 1 ? "0" : "-1"}" data-node-id="${escapeAttribute(item.id)}" aria-level="${level}" aria-posinset="${position}" aria-setsize="${size}" aria-label="${escapeAttribute(ariaLabel)}"${state}><div class="tree-row"${expandable ? " data-expandable" : ""} title="${escapeAttribute(item.node.content.expressionText ?? item.node.text)}"><span class="disclosure" aria-hidden="true">${disclosure}</span><span class="tree-icon icon-${item.iconClass}" aria-hidden="true">${item.icon}</span><span class="tree-content"><span class="tree-label">${escapeHtml(item.label)}</span> <span class="tree-description">${tokenizeTypeScript(item.summary).map(renderSegment).join("")}</span>${recursive}</span></div>${note}${children}</div></li>`;
+  return `<li role="none" data-key="${escapeAttribute(item.id)}"><div class="tree-item${level === 1 ? " tree-root" : ""}" role="treeitem" tabindex="${level === 1 ? "0" : "-1"}" data-node-id="${escapeAttribute(item.id)}" aria-level="${level}" aria-posinset="${position}" aria-setsize="${size}" aria-label="${escapeAttribute(ariaLabel)}"${state}><div class="tree-row"${expandable ? " data-expandable" : ""} title="${escapeAttribute(item.node.content.expressionText ?? item.node.text)}"><span class="disclosure" aria-hidden="true">${disclosure}</span><span class="tree-icon icon-${item.iconClass}" aria-hidden="true">${item.icon}</span><span class="tree-content"><span class="tree-label">${escapeHtml(item.label)}</span> <span class="tree-description">${tokenizeTypeScript(item.summary).map(renderSegment).join("")}</span>${recursive}</span></div>${note}${children}</div></li>`;
 }
 
 function renderSegment(segment: CodeSegment): string {
@@ -136,7 +139,7 @@ function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/\r|\n/g, " ");
 }
 
-function renderPaletteProperties(palette: ThemeTokenPalette | undefined): string {
+export function renderPaletteProperties(palette: ThemeTokenPalette | undefined): string {
   const values: ReadonlyArray<readonly [string, keyof ThemeTokenPalette, string]> = [
     ["--ft-keyword", "keyword", "var(--vscode-symbolIcon-keywordForeground, var(--ft-code))"],
     ["--ft-type", "type", "var(--vscode-symbolIcon-classForeground, var(--ft-code))"],

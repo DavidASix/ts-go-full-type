@@ -47,4 +47,72 @@ describe("webview tree interactions", () => {
       expect(next.document.querySelector(".scroll")?.scrollLeft).toBe(22);
     } finally { next.close(); }
   });
+  it("preserves selection, focus, scrolling, and metadata while another branch expands", async () => {
+    const h = await webviewHarness(state);
+    try {
+      const value = h.row("value");
+      value.focus();
+      const selectedText = value.querySelector(".tree-description span")!.firstChild!;
+      const range = h.document.createRange(); range.selectNodeContents(selectedText);
+      const selection = h.window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+      expect(selection.toString()).toBe("string");
+      const metadata = h.document.querySelector<HTMLDetailsElement>(".metadata")!; metadata.open = true;
+      const surface = h.document.querySelector<HTMLElement>(".scroll")!; surface.scrollTop = 80; surface.scrollLeft = 17;
+      const expanded: ViewState = { ...state, result: { ...state.result, root: { ...state.result.root, content: {
+        state: "expanded", layout: "object", children: [
+          { label: "nested", node: { viewNodeId: "nested", text: "Nested", content: { state: "expanded", layout: "object", children: [
+            { label: "child", node: { viewNodeId: "child", text: "number", content: { state: "leaf", layout: "atom" } } },
+          ] } } },
+          state.result.root.content.children![1]!,
+        ],
+      } } } };
+      h.update(expanded);
+      expect(h.row("value")).toBe(value);
+      expect(h.document.activeElement).toBe(value);
+      expect(selection.anchorNode).toBe(selectedText);
+      expect(selection.toString()).toBe("string");
+      expect(metadata.open).toBe(true);
+      expect(surface.scrollTop).toBe(80); expect(surface.scrollLeft).toBe(17);
+      h.update(expanded, true);
+      expect(h.row("value")).toBe(value);
+      expect(selection.toString()).toBe("string");
+      expect(h.document.querySelector(".type-tree")?.classList.contains("word-wrap")).toBe(true);
+      h.window.dispatchEvent(new h.window.MessageEvent("message", { data: {
+        type: "render", generation: "1", html: h.document.getElementById("content")!.innerHTML, paletteCss: "--ft-type: #abcdef;",
+      } }));
+      expect(h.document.getElementById("theme-palette")?.textContent).toContain("#abcdef");
+      expect(selection.toString()).toBe("string");
+    } finally { h.close(); }
+  });
+
+  it("returns focus to the nearest retained ancestor when a branch is collapsed", async () => {
+    const expanded: ViewState = { ...state, result: { ...state.result, root: { ...state.result.root, content: {
+      state: "expanded", layout: "object", children: [{ label: "nested", node: {
+        viewNodeId: "nested", text: "Nested", content: { state: "expanded", layout: "object", children: [
+          { label: "child", node: { viewNodeId: "child", text: "number", content: { state: "leaf", layout: "atom" } } },
+        ] },
+      } }],
+    } } } };
+    const h = await webviewHarness(expanded);
+    try {
+      h.row("child").focus();
+      h.update(state);
+      expect(h.document.activeElement).toBe(h.row("nested"));
+      expect(h.row("nested").getAttribute("aria-expanded")).toBe("false");
+    } finally { h.close(); }
+  });
+
+  it("resets symbol-local state without taking keyboard focus when the editor changes symbols", async () => {
+    const h = await webviewHarness(state);
+    try {
+      h.document.querySelector<HTMLDetailsElement>(".metadata")!.open = true;
+      h.document.querySelector<HTMLElement>(".scroll")!.scrollTop = 80;
+      h.row("value").focus();
+      h.update({ ...state, result: { ...state.result, generation: 2, name: "Other" } });
+      expect(h.document.querySelector<HTMLDetailsElement>(".metadata")!.open).toBe(false);
+      expect(h.document.querySelector(".scroll")?.scrollTop).toBe(0);
+      expect(h.document.querySelector('[role="tree"]')?.getAttribute("data-generation")).toBe("2");
+    } finally { h.close(); }
+  });
+
 });

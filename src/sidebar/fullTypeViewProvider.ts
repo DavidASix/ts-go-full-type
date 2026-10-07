@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { parseWebviewMessage, type ViewState } from "../shared/protocol";
-import { renderHtml } from "./renderHtml";
+import { parseWebviewMessage, type ViewState, type WebviewUpdate } from "../shared/protocol";
+import { renderHtml, renderViewContent, renderPaletteProperties } from "./renderHtml";
 import type { ThemeTokenPalette } from "./themePalette";
 import { resolveActiveThemeTokenPalette } from "./themePaletteResolver";
 
@@ -18,6 +18,8 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
   private palette: ThemeTokenPalette = {};
   private paletteRequest = 0;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly viewDisposables: vscode.Disposable[] = [];
+  private ready = false;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -37,25 +39,33 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
   }
 
   public resolveWebviewView(view: vscode.WebviewView): void {
+    this.releaseView();
     this.view = view;
     view.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist")],
     };
-    this.disposables.push(
+    this.viewDisposables.push(
       view.onDidChangeVisibility(() => this.events.onVisibilityChanged(view.visible)),
       view.webview.onDidReceiveMessage((raw: unknown) => {
         const message = parseWebviewMessage(raw);
-        if (message?.type === "toggle") {
-          this.events.onToggle(message.viewNodeId);
+        if (message?.type === "toggle") this.events.onToggle(message.viewNodeId);
+        else if (message?.type === "ready") {
+          this.ready = true;
+          this.render();
         }
       }),
       view.onDidDispose(() => {
-        this.view = undefined;
+        this.releaseView();
         this.events.onVisibilityChanged(false);
       }),
     );
-    this.render();
+    const nonce = randomBytes(18).toString("base64url");
+    view.webview.html = renderHtml(this.state, {
+      cspSource: view.webview.cspSource,
+      scriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
+      nonce, palette: this.palette, wordWrap: this.wordWrap,
+    });
     this.events.onVisibilityChanged(view.visible);
   }
 
@@ -81,6 +91,12 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
+    this.releaseView();
+  }
+
+  private releaseView(): void {
+    this.ready = false;
+    for (const disposable of this.viewDisposables.splice(0)) disposable.dispose();
     this.view = undefined;
   }
 
@@ -89,14 +105,14 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     if (webview === undefined) {
       return;
     }
-    const nonce = randomBytes(18).toString("base64url");
-    webview.html = renderHtml(this.state, {
-      cspSource: webview.cspSource,
-      scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
-      nonce,
-      palette: this.palette,
-      wordWrap: this.wordWrap,
-    });
+    if (!this.ready) return;
+    const update: WebviewUpdate = {
+      type: "render",
+      generation: this.state.kind === "success" ? String(this.state.result.generation) : "",
+      html: renderViewContent(this.state, this.wordWrap),
+      paletteCss: renderPaletteProperties(this.palette),
+    };
+    void webview.postMessage(update);
   }
 
   private async refreshPalette(): Promise<void> {

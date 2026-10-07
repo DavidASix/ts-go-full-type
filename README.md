@@ -53,3 +53,7 @@ stale requests, snapshot disposal, hidden views, keyboard navigation, and Copy.
 Graph interactions are limited to 5,000 nodes and 2 MB of UTF-8 graph text.
 Budgets are charged during materialization; rejected interactions retain the prior
 view, including when expanding multiple branches at once.
+
+The webview keeps one document alive and receives rendered content updates after
+its ready handshake. Rows are reconciled by node ID, preserving unchanged DOM
+nodes, selection, focus, scroll position, and opened metadata within a symbol.

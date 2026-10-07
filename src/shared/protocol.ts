@@ -44,6 +44,19 @@ export type WebviewMessage =
   | { readonly type: "toggle"; readonly viewNodeId: string }
   | { readonly type: "ready" };
 
+export interface WebviewUpdate {
+  readonly type: "render";
+  readonly generation: string;
+  readonly html: string;
+  readonly paletteCss: string;
+}
+
+export function parseWebviewUpdate(value: unknown): WebviewUpdate | undefined {
+  if (!isRecord(value) || value.type !== "render" || typeof value.generation !== "string" ||
+    typeof value.html !== "string" || typeof value.paletteCss !== "string") return undefined;
+  return { type: "render", generation: value.generation, html: value.html, paletteCss: value.paletteCss };
+}
+
 export function parseWebviewMessage(value: unknown): WebviewMessage | undefined {
   if (!isRecord(value) || typeof value.type !== "string") {
     return undefined;

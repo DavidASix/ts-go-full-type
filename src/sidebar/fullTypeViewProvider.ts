@@ -72,7 +72,6 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
     );
     const nonce = randomBytes(18).toString("base64url");
     view.webview.html = renderHtml(this.state, {
-      cspSource: view.webview.cspSource,
       scriptUri: view.webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
       nonce, palette: this.palette, wordWrap: this.wordWrap,
     });

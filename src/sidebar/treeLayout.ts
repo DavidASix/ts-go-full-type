@@ -68,7 +68,7 @@ function summarize(text: string, kind: string): string {
   if (text.trimStart().startsWith("{")) return kindLabel(kind);
   return tokenizeTypeScript(text).map((segment) =>
     segment.kind === "text" && /^\s+$/.test(segment.text) ? " "
-      : segment.kind === "text" || segment.kind === "token" ? segment.text : "").join("");
+      : segment.text).join("");
 }
 
 function kindLabel(kind: string): string {

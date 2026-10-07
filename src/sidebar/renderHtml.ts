@@ -1,11 +1,10 @@
 import type * as vscode from "vscode";
 import type { ViewState } from "../shared/protocol";
-import { tokenizeTypeScript, type CodeSegment } from "./codeLayout";
+import { tokenizeTypeScript, type HighlightSegment } from "./codeLayout";
 import { buildTypeTree, type TypeTreeItem } from "./treeLayout";
 import { normalizeThemeColor, type ThemeTokenPalette } from "./themePalette";
 
 export interface HtmlResources {
-  readonly cspSource: string;
   readonly scriptUri: vscode.Uri;
   readonly nonce: string;
   readonly palette?: ThemeTokenPalette;
@@ -147,16 +146,13 @@ function renderTreeItem(item: TypeTreeItem, level: number, position: number, siz
  * Render classified text as escaped HTML for syntax highlighting.
  * @param segment Classified presentation segment to serialize or render.
  */
-function renderSegment(segment: CodeSegment): string {
+function renderSegment(segment: HighlightSegment): string {
   switch (segment.kind) {
     case "text":
       return escapeHtml(segment.text);
     case "token":
       return `<span class="tok-${segment.tokenClass}">${escapeHtml(segment.text)}</span>`;
-    case "recursive":
-      return `<span class="recursive" role="img" aria-label="Recursive reference: ${escapeAttribute(segment.label)}" title="Recursive reference">↩ ${escapeHtml(segment.label)}</span>`;
-    case "disclosure":
-      return `<button class="disclosure" type="button" data-node-id="${escapeAttribute(segment.nodeId)}" aria-label="${escapeAttribute(segment.label)}" aria-expanded="${segment.state === "expanded"}">${segment.state === "expanded" ? "▾" : "▸"}</button>`;
+
   }
 }
 

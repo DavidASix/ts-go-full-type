@@ -65,7 +65,6 @@ describe("theme token palette", () => {
     const html = renderHtml(
       { kind: "success", result, rawText: "" },
       {
-        cspSource: "vscode-webview:",
         scriptUri: { toString: () => "vscode-webview://webview/dist/webview.js" } as never,
         nonce: "fixedNonce",
         palette: {

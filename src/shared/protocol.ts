@@ -1,5 +1,3 @@
-export type ViewNodeState = "leaf" | "collapsed" | "expanded" | "recursive";
-
 export type NodeLayout = "atom" | "object" | "union" | "intersection" | "array" | "tuple" | "details";
 
 export interface TypeRenderEdge {

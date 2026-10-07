@@ -11,7 +11,7 @@ import type { ViewState } from "../../src/shared/protocol";
 export async function webviewHarness(state: ViewState, saved?: unknown) {
   let persisted = saved;
   const messages: unknown[] = [];
-  const dom = new JSDOM(renderHtml(state, { nonce: "test", cspSource: "", scriptUri: { toString: () => "/webview.js" } as never }), { runScripts: "outside-only", pretendToBeVisual: true, url: "https://full-type-viewer.test" });
+  const dom = new JSDOM(renderHtml(state, { nonce: "test", scriptUri: { toString: () => "/webview.js" } as never }), { runScripts: "outside-only", pretendToBeVisual: true, url: "https://full-type-viewer.test" });
   const window = dom.window;
   Object.assign(window, { acquireVsCodeApi: () => ({
     getState: () => persisted,

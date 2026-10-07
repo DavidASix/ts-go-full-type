@@ -12,9 +12,11 @@ export type TokenClass =
   | "operator"
   | "comment";
 
-export type CodeSegment =
+export type HighlightSegment =
   | { readonly kind: "token"; readonly text: string; readonly tokenClass: TokenClass }
-  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string };
+
+export type CodeSegment = HighlightSegment
   | { readonly kind: "disclosure"; readonly nodeId: string; readonly label: string; readonly state: "collapsed" | "expanded" }
   | { readonly kind: "recursive"; readonly label: string };
 
@@ -83,7 +85,7 @@ export function buildCompleteTypeLayout(result: CompleteTypeResult): CompleteTyp
  * Classify compiler tokens for highlighting while preserving their original text.
  * @param value Untrusted value to validate or normalize.
  */
-export function tokenizeTypeScript(value: string): readonly CodeSegment[] {
+export function tokenizeTypeScript(value: string): readonly HighlightSegment[] {
   const scanner = createScanner(false, undefined, value);
   const scanned: Array<{ kind: SyntaxKind; text: string }> = [];
   for (let kind = scanner.scan(); kind !== SyntaxKind.EndOfFile; kind = scanner.scan()) {
@@ -94,7 +96,7 @@ export function tokenizeTypeScript(value: string): readonly CodeSegment[] {
     .filter(({ entry }) => !isTrivia(entry.kind));
   const significantPosition = new Map(significant.map(({ index }, position) => [index, position]));
 
-  return scanned.map((entry, index): CodeSegment => {
+  return scanned.map((entry, index): HighlightSegment => {
     if (entry.kind === SyntaxKind.WhitespaceTrivia || entry.kind === SyntaxKind.NewLineTrivia) {
       return text(entry.text);
     }
@@ -404,11 +406,11 @@ function line(indentColumns: number, ...segments: CodeSegment[]): MutableCodeLin
   return { indentColumns, segments };
 }
 
-function text(value: string): CodeSegment {
+function text(value: string): HighlightSegment {
   return { kind: "text", text: value };
 }
 
-function token(value: string, tokenClass: TokenClass): CodeSegment {
+function token(value: string, tokenClass: TokenClass): HighlightSegment {
   return { kind: "token", text: value, tokenClass };
 }
 

@@ -29,7 +29,6 @@ describe("rendering", () => {
     { kind: "success", result, rawText: "raw" },
   ])("renders the $kind view state with a nonce CSP", (state) => {
     const html = renderHtml(state, {
-      cspSource: "vscode-webview:",
       scriptUri: { toString: () => "vscode-webview://webview/dist/webview.js" } as never,
       nonce: "fixedNonce",
     });
@@ -166,7 +165,6 @@ describe("rendering", () => {
  */
 function resources() {
   return {
-    cspSource: "vscode-webview:",
     scriptUri: { toString: () => "vscode-webview://webview/dist/webview.js" } as never,
     nonce: "fixedNonce",
   };

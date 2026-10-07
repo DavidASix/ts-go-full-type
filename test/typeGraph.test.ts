@@ -56,7 +56,7 @@ function createHarness() {
   function type(
     text: string,
     kind: Kind = "leaf",
-    options: { named?: boolean; aliasName?: string; readonly?: boolean; nonPropertyShape?: boolean } = {},
+    options: { named?: boolean; aliasName?: string; readonly?: boolean } = {},
   ): Type {
     const id = nextId++;
     const model: FakeModel = {

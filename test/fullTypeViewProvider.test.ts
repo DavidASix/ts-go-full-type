@@ -21,7 +21,6 @@ function view() {
     set html(value: string) { documents.push(value); },
     postMessage: vi.fn(async (_value: unknown) => true),
     asWebviewUri: (uri: unknown) => uri,
-    cspSource: "vscode-webview:",
     onDidReceiveMessage: subscribe("message"),
   };
   const value = { visible: true, webview, onDidChangeVisibility: subscribe("visibility"), onDidDispose: subscribe("dispose") } as unknown as vscode.WebviewView;

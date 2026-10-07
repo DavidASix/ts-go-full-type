@@ -39,7 +39,7 @@ describe("type tree", () => {
     const recursive: TypeRenderNode = { viewNodeId: "1:cycle", text: "Example", content: { state: "recursive", layout: "atom" }};
     const collapsed: TypeRenderNode = { viewNodeId: "1:child", text: "Nested", content: { state: "collapsed", layout: "atom" }};
     const state = result({ viewNodeId: "1:root", text: "Example", content: { state: "expanded", layout: "object", children: [{ label: "value", node: leaf }, { label: "self", node: recursive }, { label: "nested", node: collapsed }] }});
-    const html = renderHtml({ kind: "success", result: state, rawText: "" }, { nonce: "test", cspSource: "", scriptUri: { toString: () => "/webview.js" } as never });
+    const html = renderHtml({ kind: "success", result: state, rawText: "" }, { nonce: "test", scriptUri: { toString: () => "/webview.js" } as never });
     expect(html.match(/role="treeitem"/g)).toHaveLength(4);
     expect(html.match(/aria-expanded=/g)).toHaveLength(2);
     expect(html).not.toContain('class="tree-label">hidden');
@@ -49,7 +49,7 @@ describe("type tree", () => {
 
   it("escapes property names, type text, node IDs, metadata, and notices", () => {
     const unsafe = result({ viewNodeId: '"><script>', text: '"<script>"', content: { state: "leaf", layout: "atom" }});
-    const html = renderHtml({ kind: "success", result: { ...unsafe, name: "<img onerror=alert(1)>" }, rawText: "", notice: "<script>alert(1)</script>" }, { nonce: "test", cspSource: "", scriptUri: { toString: () => "/webview.js" } as never });
+    const html = renderHtml({ kind: "success", result: { ...unsafe, name: "<img onerror=alert(1)>" }, rawText: "", notice: "<script>alert(1)</script>" }, { nonce: "test", scriptUri: { toString: () => "/webview.js" } as never });
     expect(html).not.toContain("<img onerror");
     expect(html).not.toContain("<script>alert");
     expect(html).toContain('data-node-id="&quot;&gt;&lt;script&gt;"');

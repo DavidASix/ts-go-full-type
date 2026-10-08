@@ -1,7 +1,7 @@
 import {
   createScanner, isArrayTypeNode, isIdentifier, isStringLiteral, isNumericLiteral, isCallSignatureDeclaration, isConditionalTypeNode,
   isConstructSignatureDeclaration, isConstructorTypeNode, isFunctionTypeNode,
-  isIndexedAccessTypeNode, isIntersectionTypeNode, isIndexSignatureDeclaration, isNamedTupleMember,
+  isIndexedAccessTypeNode, isIntersectionTypeNode, isIndexSignatureDeclaration, isMethodSignatureDeclaration, isNamedTupleMember,
   isOptionalTypeNode, isParenthesizedTypeNode, isPropertySignatureDeclaration, isRestTypeNode,
   isTemplateLiteralTypeNode, isTupleTypeNode, isTypeLiteralNode, isTypeOperatorNode,
   isTypePredicateNode, isTypeReferenceNode, SyntaxKind, visitEachChild,
@@ -95,13 +95,19 @@ function bindChildren(syntax: Node, children: readonly TypeRenderEdge[]): Bindin
   const calls = children.flatMap((edge, edgeIndex) => edge.role === "call" ? [edgeIndex] : []);
   const constructs = children.flatMap((edge, edgeIndex) => edge.role === "construct" ? [edgeIndex] : []);
   const indexes = children.flatMap((edge, edgeIndex) => edge.role === "index" ? [edgeIndex] : []);
+  const methodOverloads = new Map<number, number>();
   const bindings: Binding[] = [];
   for (const member of node.members) {
-    if (isPropertySignatureDeclaration(member) && member.type !== undefined) {
+    if (isPropertySignatureDeclaration(member) || isMethodSignatureDeclaration(member)) {
       const name = member.name;
       const label = isIdentifier(name) || isNumericLiteral(name) ? name.text : isStringLiteral(name) ? JSON.stringify(name.text) : undefined;
       const edgeIndex = children.findIndex((edge) => label !== undefined && edge.label === label);
-      if (edgeIndex >= 0) bindings.push({ node: member.type, path: [edgeIndex] });
+      if (edgeIndex < 0) continue;
+      if (isMethodSignatureDeclaration(member)) {
+        const overload = methodOverloads.get(edgeIndex) ?? 0;
+        methodOverloads.set(edgeIndex, overload + 1);
+        bindings.push(...bindSignature(member, [edgeIndex, overload]));
+      } else if (member.type !== undefined) bindings.push({ node: member.type, path: [edgeIndex] });
     } else if (isCallSignatureDeclaration(member) || isConstructSignatureDeclaration(member)) {
       const edgeIndex = isCallSignatureDeclaration(member) ? calls[call++] : constructs[construct++];
       if (edgeIndex !== undefined) bindings.push(...bindSignature(member, [edgeIndex]));

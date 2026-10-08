@@ -20,6 +20,7 @@ import { UserVisibleError } from "../shared/errors";
 import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode, TypeExpressionPart } from "../shared/protocol";
 import { DEFAULT_GRAPH_LIMITS, GraphBudget, type GraphLimits } from "./graphBudget";
 import { isReadonlyProperty } from "./propertyModifiers";
+import { quotePropertyName } from "./propertyNames";
 import { buildTypeExpression, unwrap } from "./typeExpression";
 import { hasPresentationTruncation } from "./truncation";
 
@@ -616,10 +617,6 @@ function measureTree(node: TypeRenderNode): { nodes: number; size: number } {
     }
   }
   return { nodes, size };
-}
-
-export function quotePropertyName(name: string): string {
-  return /^[$A-Z_a-z][$\w]*$/u.test(name) ? name : JSON.stringify(name);
 }
 
 /** Account for both syntax fragments and collapsed slot fallbacks in graph limits. */

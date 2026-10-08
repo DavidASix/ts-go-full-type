@@ -12,7 +12,8 @@ import {
 } from "typescript/unstable/async";
 import { SyntaxKind, isArrayTypeNode, isNamedTupleMember, isOptionalTypeNode, isRestTypeNode, isIdentifier, isTupleTypeNode, isTypeReferenceNode, type Node } from "typescript/unstable/ast";
 import { createArrayTypeNode, createNamedTupleMember, createOptionalTypeNode, createRestTypeNode, createToken, createIdentifier, createTupleTypeNode, createTypeReferenceNode } from "typescript/unstable/ast/factory";
-import { TypeGraph, quotePropertyName } from "../src/native/typeGraph";
+import { TypeGraph } from "../src/native/typeGraph";
+import { quotePropertyName } from "../src/native/propertyNames";
 import { buildTypeTree } from "../src/sidebar/treeLayout";
 import { renderNode } from "../src/sidebar/renderText";
 

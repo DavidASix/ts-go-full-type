@@ -10,6 +10,7 @@ import {
 import { createIdentifier, createTypeReferenceNode } from "typescript/unstable/ast/factory";
 import { settleQueries } from "../shared/async";
 import type { TypeExpressionPart, TypeRenderEdge } from "../shared/protocol";
+import { quotePropertyName } from "./propertyNames";
 
 interface Binding {
   readonly node: TypeNode;
@@ -100,7 +101,7 @@ function bindChildren(syntax: Node, children: readonly TypeRenderEdge[]): Bindin
   for (const member of node.members) {
     if (isPropertySignatureDeclaration(member) || isMethodSignatureDeclaration(member)) {
       const name = member.name;
-      const label = isIdentifier(name) || isNumericLiteral(name) ? name.text : isStringLiteral(name) ? JSON.stringify(name.text) : undefined;
+      const label = isIdentifier(name) || isNumericLiteral(name) || isStringLiteral(name) ? quotePropertyName(name.text) : undefined;
       const edgeIndex = children.findIndex((edge) => label !== undefined && edge.label === label);
       if (edgeIndex < 0) continue;
       if (isMethodSignatureDeclaration(member)) {

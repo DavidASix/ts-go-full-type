@@ -7,7 +7,14 @@ import {
   type Signature,
   type Type,
 } from "typescript/unstable/async";
-import { isNamedTupleMember, isOptionalTypeNode, isRestTypeNode, isTupleTypeNode, SyntaxKind, type Node } from "typescript/unstable/ast";
+import {
+  isCallSignatureDeclaration, isConstructSignatureDeclaration, isNamedTupleMember, isOptionalTypeNode, isRestTypeNode,
+  isTupleTypeNode, isTypeReferenceNode, SyntaxKind, TokenFlags, type Expression, type Node, type TypeElement, type TypeNode,
+} from "typescript/unstable/ast";
+import {
+  createIdentifier, createIndexSignatureDeclaration, createKeywordTypeNode, createParameterDeclaration,
+  createPropertySignatureDeclaration, createStringLiteral, createToken, createTypeLiteralNode,
+} from "typescript/unstable/ast/factory";
 import { settleQueries } from "../shared/async";
 import { UserVisibleError } from "../shared/errors";
 import type { NodeContent, NodeLayout, TypeRenderEdge, TypeRenderNode, TypeExpressionPart } from "../shared/protocol";
@@ -56,10 +63,52 @@ export class TypeGraph {
 
   /** Build a compiler-printed expression with slots for semantic descendants. */
   private async expression(type: Type, children: readonly TypeRenderEdge[]): Promise<readonly TypeExpressionPart[] | undefined> {
-    const syntax = await this.query(() => this.checker.typeToTypeNode(type, this.enclosingDeclaration, PRINT_FLAGS));
+    let syntax = await this.query(() => this.checker.typeToTypeNode(type, this.enclosingDeclaration, PRINT_FLAGS));
     if (syntax === undefined) return undefined;
     if (type.isTypeParameter() && children.length > 0) return [await this.print(type), " & ", { path: [0], fallback: children[0]!.node.text }];
+    if (isTypeReferenceNode(unwrap(syntax)) && children.some((edge) => edge.role === "call" || edge.role === "construct" || edge.role === "index")) {
+      syntax = await this.structuralObjectSyntax(type);
+    }
     return buildTypeExpression(syntax, children, (node) => this.query(() => this.project.emitter.printNode(node)));
+  }
+
+  /** Expose a named callable/indexed object's immediate shape while leaving descendant syntax compiler-owned. */
+  private async structuralObjectSyntax(type: Type): Promise<TypeNode> {
+    const members: TypeElement[] = [];
+    for (const property of await this.query(() => this.checker.getPropertiesOfType(type))) {
+      const propertyType = await this.query(() => this.checker.getTypeOfSymbol(property));
+      const name = quotePropertyName(property.name) === property.name
+        ? createIdentifier(property.name) : createStringLiteral(property.name, TokenFlags.None);
+      const modifiers = await isReadonlyProperty(property, (operation) => this.query(operation)) ? [createToken(SyntaxKind.ReadonlyKeyword)] : undefined;
+      // The pinned AST factory incorrectly requires an initializer for property signatures, which have none.
+      members.push(createPropertySignatureDeclaration(modifiers, name,
+        property.flags & SymbolFlags.Optional ? createToken(SyntaxKind.QuestionToken) : undefined,
+        propertyType === undefined ? createKeywordTypeNode(SyntaxKind.UnknownKeyword) : await this.typeSyntax(propertyType),
+        undefined as unknown as Expression));
+    }
+    for (const kind of [SignatureKind.Call, SignatureKind.Construct]) {
+      for (const signature of await this.query(() => this.checker.getSignaturesOfType(type, kind))) {
+        const syntax = await this.query(() => this.checker.signatureToSignatureDeclaration(signature,
+          kind === SignatureKind.Call ? SyntaxKind.CallSignature : SyntaxKind.ConstructSignature, this.enclosingDeclaration, PRINT_FLAGS));
+        if (syntax === undefined || !(isCallSignatureDeclaration(syntax) || isConstructSignatureDeclaration(syntax))) {
+          throw new UserVisibleError("TypeScript could not expose this object's complete signature syntax.");
+        }
+        members.push(syntax);
+      }
+    }
+    for (const index of await this.query(() => this.checker.getIndexInfosOfType(type))) {
+      members.push(createIndexSignatureDeclaration(index.isReadonly ? [createToken(SyntaxKind.ReadonlyKeyword)] : undefined,
+        [createParameterDeclaration(undefined, undefined, createIdentifier("key"), undefined, await this.typeSyntax(index.keyType))],
+        await this.typeSyntax(index.valueType)));
+    }
+    return createTypeLiteralNode(members);
+  }
+
+  /** Require compiler syntax for a structural member so incomplete Copy output fails visibly. */
+  private async typeSyntax(type: Type): Promise<TypeNode> {
+    const syntax = await this.query(() => this.checker.typeToTypeNode(type, this.enclosingDeclaration, PRINT_FLAGS));
+    if (syntax === undefined) throw new UserVisibleError("TypeScript could not expose this object's complete member syntax.");
+    return syntax;
   }
 
   /**

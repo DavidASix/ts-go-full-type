@@ -85,3 +85,20 @@ export class GetterFixture {
   get mutable(): string { return "mutable"; }
   set mutable(value: string) { void value; }
 }
+
+interface CopyPayload { expandedCopyField: string; }
+interface CopyInput { expandedInputField: number; }
+interface CopyCallable {
+  readonly metadata?: CopyPayload;
+  (input: CopyInput): CopyPayload;
+}
+interface CopyConstructor { new (input: CopyInput): CopyPayload; }
+interface CopyIndex { readonly [key: string]: CopyPayload; }
+
+type CopyRegressionFixture = {
+  namedCall: CopyCallable;
+  namedConstruct: CopyConstructor;
+  namedIndex: CopyIndex;
+  methods: { (): void; get(input?: CopyInput): CopyPayload; };
+  numeric: { (): void; 0: CopyPayload; };
+};

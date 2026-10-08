@@ -10,8 +10,18 @@ import {
   type Signature,
   type IndexInfo,
 } from "typescript/unstable/async";
-import { SyntaxKind, isArrayTypeNode, isNamedTupleMember, isOptionalTypeNode, isRestTypeNode, isIdentifier, isTupleTypeNode, isTypeReferenceNode, type Node } from "typescript/unstable/ast";
-import { createArrayTypeNode, createNamedTupleMember, createOptionalTypeNode, createRestTypeNode, createToken, createIdentifier, createTupleTypeNode, createTypeReferenceNode } from "typescript/unstable/ast/factory";
+import {
+  SyntaxKind, TokenFlags, isArrayTypeNode, isCallSignatureDeclaration, isConstructSignatureDeclaration, isFunctionTypeNode,
+  isIdentifier, isIndexSignatureDeclaration, isMethodSignatureDeclaration, isNamedTupleMember, isNumericLiteral, isOptionalTypeNode,
+  isParameterDeclaration, isPropertySignatureDeclaration, isRestTypeNode, isStringLiteral, isTupleTypeNode, isTypeLiteralNode,
+  isTypeReferenceNode, getSynthesizedDeepClone, tokenToString, type Expression, type Node,
+} from "typescript/unstable/ast";
+import {
+  createArrayTypeNode, createCallSignatureDeclaration, createConstructSignatureDeclaration, createIdentifier,
+  createIndexSignatureDeclaration, createKeywordTypeNode, createMethodSignatureDeclaration, createNamedTupleMember,
+  createNumericLiteral, createOptionalTypeNode, createParameterDeclaration, createPropertySignatureDeclaration, createRestTypeNode,
+  createStringLiteral, createToken, createTupleTypeNode, createTypeLiteralNode, createTypeReferenceNode,
+} from "typescript/unstable/ast/factory";
 import { TypeGraph } from "../src/native/typeGraph";
 import { quotePropertyName } from "../src/native/propertyNames";
 import { buildTypeTree } from "../src/sidebar/treeLayout";
@@ -45,6 +55,7 @@ interface FakeModel {
  */
 function createHarness() {
   const syntax = new Map<number, Node>();
+  const signatureSyntax = new Map<Signature, Node>();
   const models = new Map<number, FakeModel>();
   let nextId = 1;
 
@@ -142,8 +153,9 @@ function createHarness() {
   }
 
   const checker = {
-    typeToTypeNode: async (value: Type) => syntax.get(value.id),
-    signatureToSignatureDeclaration: async () => undefined,
+    // Native responses decode fresh syntax trees, including separate nodes for repeated annotations.
+    typeToTypeNode: async (value: Type) => getSynthesizedDeepClone(syntax.get(value.id)),
+    signatureToSignatureDeclaration: async (signature: Signature) => getSynthesizedDeepClone(signatureSyntax.get(signature)),
     typeToString: async (value: Type) => model(value).text,
     getPropertiesOfType: async (value: Type) => model(value).properties.map((entry) => entry.symbol),
     getTypeOfSymbol: async (symbol: AsyncSymbol) => {
@@ -171,7 +183,7 @@ function createHarness() {
    * @param parameters Ordered fixture signature parameter names and types.
    * @param returns Fixture semantic return type.
    */
-  function signature(owner: Type, kind: SignatureKind, parameters: Array<[string, Type]>, returns: Type): void {
+  function signature(owner: Type, kind: SignatureKind, parameters: Array<[string, Type]>, returns: Type): Signature {
     const parameterOwner = type("parameters", "object");
     for (const [name, value] of parameters) property(parameterOwner, name, value);
     const signature = {
@@ -182,12 +194,13 @@ function createHarness() {
     } as unknown as Signature;
     signatureReturns.set(signature, returns);
     (kind === SignatureKind.Call ? model(owner).calls : model(owner).constructs).push(signature);
+    return signature;
   }
   function index(owner: Type, keyType: Type, valueType: Type): void {
     model(owner).indexes.push({ keyType, valueType, isReadonly: false });
   }
   /**
-   * Print the small compiler syntax subset used by tuple graph fixtures.
+   * Print compiler AST fixtures independently of semantic graph relationships and expression bindings.
    * @param node Syntax or presentation node being processed.
    */
   function printSyntax(node: Node): string {
@@ -197,10 +210,23 @@ function createHarness() {
     if (isArrayTypeNode(node)) return `${printSyntax(node.elementType)}[]`;
     if (isTupleTypeNode(node)) return `[${node.elements.map(printSyntax).join(", ")}]`;
     if (isTypeReferenceNode(node)) return isIdentifier(node.typeName) ? node.typeName.text : "unknown";
+    if (isIdentifier(node) || isNumericLiteral(node)) return node.text;
+    if (isStringLiteral(node)) return JSON.stringify(node.text);
+    if (isTypeLiteralNode(node)) return `{ ${node.members.map(printSyntax).join(" ")} }`;
+    if (isParameterDeclaration(node)) return `${node.dotDotDotToken ? "..." : ""}${printSyntax(node.name)}${node.questionToken ? "?" : ""}: ${node.type ? printSyntax(node.type) : "unknown"}`;
+    if (isPropertySignatureDeclaration(node)) return `${node.modifiers?.some((modifier) => modifier.kind === SyntaxKind.ReadonlyKeyword) ? "readonly " : ""}${printSyntax(node.name)}${node.postfixToken ? "?" : ""}: ${printSyntax(node.type)};`;
+    if (isIndexSignatureDeclaration(node)) return `${node.modifiers?.some((modifier) => modifier.kind === SyntaxKind.ReadonlyKeyword) ? "readonly " : ""}[${node.parameters.map(printSyntax).join(", ")}]: ${printSyntax(node.type)};`;
+    if (isCallSignatureDeclaration(node) || isConstructSignatureDeclaration(node) || isMethodSignatureDeclaration(node) || isFunctionTypeNode(node)) {
+      let prefix = isConstructSignatureDeclaration(node) ? "new " : "";
+      if (isMethodSignatureDeclaration(node)) prefix = `${printSyntax(node.name)}${node.postfixToken ? "?" : ""}`;
+      return `${prefix}(${node.parameters.map(printSyntax).join(", ")})${isFunctionTypeNode(node) ? " =>" : ":"} ${node.type ? printSyntax(node.type) : "unknown"}${isFunctionTypeNode(node) ? "" : ";"}`;
+    }
+    const token = tokenToString(node.kind);
+    if (token !== undefined) return token;
     throw new Error("Unexpected fixture syntax");
   }
   const emitter = { printNode: async (node: Node) => printSyntax(node) };
-  return { syntax, project: { checker, emitter } as Project, checker, type, property, members, arguments_, aliasArguments, signature, index, model };
+  return { syntax, signatureSyntax, project: { checker, emitter } as Project, checker, type, property, members, arguments_, aliasArguments, signature, index, model };
 }
 
 import { deferred } from "./support/deferred";
@@ -435,12 +461,24 @@ describe("TypeGraph", () => {
   it("exposes callable parameters, returns, constructors, and index values alongside properties", async () => {
     const h = createHarness();
     const string = h.type("string");
-    const nested = h.type("{ value: string }", "object");
+    const nested = h.type("Payload", "object", { named: true });
     h.property(nested, "value", string);
     const callable = h.type("{ (input: string): { value: string }; new (): { value: string }; [key: string]: unknown; label: string }", "object");
     h.property(callable, "label", string);
-    h.signature(callable, SignatureKind.Call, [["input", string]], nested);
-    h.signature(callable, SignatureKind.Construct, [], nested);
+    const payloadSyntax = createTypeReferenceNode(createIdentifier("Payload"));
+    const stringSyntax = createKeywordTypeNode(SyntaxKind.StringKeyword);
+    const callSyntax = createCallSignatureDeclaration(undefined,
+      [createParameterDeclaration(undefined, undefined, createIdentifier("input"), undefined, stringSyntax)], payloadSyntax);
+    const constructSyntax = createConstructSignatureDeclaration(undefined, [], payloadSyntax);
+    const call = h.signature(callable, SignatureKind.Call, [["input", string]], nested);
+    const construct = h.signature(callable, SignatureKind.Construct, [], nested);
+    h.signatureSyntax.set(call, callSyntax);
+    h.signatureSyntax.set(construct, constructSyntax);
+    h.syntax.set(callable.id, createTypeLiteralNode([callSyntax, constructSyntax,
+      createIndexSignatureDeclaration(undefined,
+        [createParameterDeclaration(undefined, undefined, createIdentifier("key"), undefined, stringSyntax)], payloadSyntax),
+      createPropertySignatureDeclaration(undefined, createIdentifier("label"), undefined, stringSyntax, undefined as unknown as Expression),
+    ]));
     h.index(callable, string, nested);
     const graph = new TypeGraph(h.project, enclosing, 12);
     const root = await graph.createRoot(callable);
@@ -449,11 +487,117 @@ describe("TypeGraph", () => {
     const signature = root.content.children![1]!.node;
     expect(signature.content.children!.map((edge) => edge.label)).toEqual(["input", "return"]);
     expect(signature.content.children![0]!.node).toMatchObject({ text: "string", content: { state: "leaf", layout: "atom" } });
+    const beforeReturn = renderNode(root, 0);
     await graph.toggle(signature.content.children![1]!.node.viewNodeId);
     expect(signature.content.children![1]!.node.content.children![0]!.node.text).toBe("string");
+    expect(renderNode(root, 0)).not.toBe(beforeReturn);
+    expect(renderNode(root, 0)).toMatch(/value: string/);
+    const beforeIndex = renderNode(root, 0);
     await graph.toggle(root.content.children![3]!.node.viewNodeId);
     expect(root.content.children![3]!.node.content.children![0]!.node.text).toBe("string");
-    expect(renderNode(root, 0)).toContain(h.model(callable).text);
+    expect(renderNode(root, 0)).not.toBe(beforeIndex);
+    await graph.toggle(root.content.children![2]!.node.viewNodeId);
+    const beforeConstruct = renderNode(root, 0);
+    await graph.toggle(root.content.children![2]!.node.content.children![0]!.node.viewNodeId);
+    expect(renderNode(root, 0)).not.toBe(beforeConstruct);
+  });
+
+  it.each(["call", "construct", "index"] as const)("copies expanded descendants of a named %s interface", async (kind) => {
+    const h = createHarness();
+    const rootType = h.type("NamedInterface", "object", { named: true });
+    const payload = h.type("Payload", "object", { named: true });
+    const string = h.type("string");
+    h.property(payload, "expandedField", string);
+    h.property(rootType, "metadata", payload, true);
+    const ref = createTypeReferenceNode(createIdentifier("Payload"));
+    h.syntax.set(rootType.id, createTypeReferenceNode(createIdentifier("NamedInterface")));
+    h.syntax.set(payload.id, ref);
+    h.syntax.set(string.id, createKeywordTypeNode(SyntaxKind.StringKeyword));
+    if (kind === "index") h.index(rootType, string, payload);
+    else {
+      const signature = h.signature(rootType, kind === "call" ? SignatureKind.Call : SignatureKind.Construct, [], payload);
+      h.signatureSyntax.set(signature, kind === "call"
+        ? createCallSignatureDeclaration(undefined, [], ref) : createConstructSignatureDeclaration(undefined, [], ref));
+    }
+    const graph = new TypeGraph(h.project, enclosing, 30);
+    const root = await graph.createRoot(rootType);
+    const collapsedCopy = renderNode(root, 0);
+    expect(collapsedCopy).toContain("metadata?: Payload");
+    expect(collapsedCopy).not.toContain("expandedField:");
+    const branch = root.content.children![1]!.node;
+    await graph.toggle(branch.viewNodeId);
+    if (kind !== "index") await graph.toggle(branch.content.children![0]!.node.viewNodeId);
+    expect(renderNode(root, 0)).not.toBe(collapsedCopy);
+    expect(renderNode(root, 0)).toContain("expandedField: string");
+    await graph.toggle(branch.viewNodeId);
+    expect(renderNode(root, 0)).toBe(collapsedCopy);
+  });
+
+  it("rejects a named callable shape when the compiler cannot supply its signature syntax", async () => {
+    const h = createHarness();
+    const callable = h.type("Callable", "object", { named: true });
+    h.syntax.set(callable.id, createTypeReferenceNode(createIdentifier("Callable")));
+    h.signature(callable, SignatureKind.Call, [], h.type("void"));
+    const graph = new TypeGraph(h.project, enclosing, 31);
+    await expect(graph.createRoot(callable)).rejects.toThrow(UserVisibleError);
+  });
+
+  it("copies each method overload's expanded parameters and returns independently", async () => {
+    const h = createHarness();
+    const rootType = h.type("{ (): void; get(input: First): First; get(input: Second): Second }", "object");
+    const method = h.type("OverloadedMethod", "object");
+    h.property(rootType, "get", method);
+    h.signature(rootType, SignatureKind.Call, [], h.type("void"));
+    const callSyntax = createCallSignatureDeclaration(undefined, [], createKeywordTypeNode(SyntaxKind.VoidKeyword));
+    const overloads = ["First", "Second"].map((name) => {
+      const payload = h.type(name, "object", { named: true });
+      h.property(payload, `${name.toLowerCase()}Field`, h.type("string"));
+      const typeSyntax = createTypeReferenceNode(createIdentifier(name));
+      const parameters = [createParameterDeclaration(undefined, undefined, createIdentifier("input"), undefined, typeSyntax)];
+      const signature = h.signature(method, SignatureKind.Call, [["input", payload]], payload);
+      h.signatureSyntax.set(signature, createCallSignatureDeclaration(undefined, parameters, typeSyntax));
+      return createMethodSignatureDeclaration(undefined, createIdentifier("get"), undefined, undefined, parameters, typeSyntax);
+    });
+    h.syntax.set(rootType.id, createTypeLiteralNode([callSyntax, ...overloads]));
+    const graph = new TypeGraph(h.project, enclosing, 32);
+    const root = await graph.createRoot(rootType);
+    const get = root.content.children![0]!.node;
+    await graph.toggle(get.viewNodeId);
+    for (const [index, edge] of get.content.children!.entries()) {
+      await graph.toggle(edge.node.viewNodeId);
+      for (const child of edge.node.content.children!) {
+        const before = renderNode(root, 0);
+        await graph.toggle(child.node.viewNodeId);
+        const after = renderNode(root, 0);
+        expect(after).not.toBe(before);
+        expect(after).toContain(index === 0 ? "firstField: string" : "secondField: string");
+        if (index === 0) expect(after).not.toContain("secondField:");
+      }
+    }
+    await graph.toggle(get.viewNodeId);
+    expect(renderNode(root, 0)).not.toMatch(/(?:first|second)Field:/);
+  });
+
+  it.each(["0", "with space", "value", "λ"])("copies an expanded property matched from compiler name %s", async (name) => {
+    const h = createHarness();
+    const rootType = h.type("CallableWithProperty", "object");
+    const payload = h.type("Payload", "object", { named: true });
+    h.property(payload, "expandedField", h.type("string"));
+    h.property(rootType, name, payload);
+    h.signature(rootType, SignatureKind.Call, [], h.type("void"));
+    const propertyName = name === "0" ? createNumericLiteral(name, TokenFlags.None) : createStringLiteral(name, TokenFlags.None);
+    h.syntax.set(rootType.id, createTypeLiteralNode([
+      createCallSignatureDeclaration(undefined, [], createKeywordTypeNode(SyntaxKind.VoidKeyword)),
+      createPropertySignatureDeclaration(undefined, propertyName, undefined,
+        createTypeReferenceNode(createIdentifier("Payload")), undefined as unknown as Expression),
+    ]));
+    const graph = new TypeGraph(h.project, enclosing, 33);
+    const root = await graph.createRoot(rootType);
+    expect(root.content.children![0]!.label).toBe(quotePropertyName(name));
+    const before = renderNode(root, 0);
+    await graph.toggle(root.content.children![0]!.node.viewNodeId);
+    expect(renderNode(root, 0)).not.toBe(before);
+    expect(renderNode(root, 0)).toContain("expandedField: string");
   });
 
   it("expands constrained type parameters", async () => {

@@ -93,6 +93,54 @@ export async function run(): Promise<void> {
     assert.equal(edge(edge(edge(state.root, "phantom"), "type argument 1"), "value").summary, "number");
     assert.doesNotMatch(state.rawText, /type argument 1:/);
 
+    await focusAlias(editor, document, "CopyRegressionFixture");
+    state = await driver.wait("CopyRegressionFixture");
+    for (const [label, signature] of [["namedCall", "call"], ["namedConstruct", "new"], ["namedIndex", "[key: string]"]] as const) {
+      state = await driver.toggle(edge(state.root, label).id, state.name);
+      const branch = edge(state.root, label);
+      if (label === "namedCall") assert.match(state.rawText, /readonly metadata\?:/);
+      const signatureLabel = label === "namedIndex" ? `readonly ${signature}` : signature;
+      const beforeSignature = state.rawText;
+      state = await driver.toggle(edge(branch, signatureLabel).id, state.name);
+      if (label === "namedIndex") assert.notEqual(state.rawText, beforeSignature);
+      else {
+        const parameter = edge(edge(edge(state.root, label), signature), "input");
+        const beforeParameter = state.rawText;
+        state = await driver.toggle(parameter.id, state.name);
+        assert.notEqual(state.rawText, beforeParameter);
+        assert.match(state.rawText, /expandedInputField: number/);
+        const beforeReturn = state.rawText;
+        state = await driver.toggle(edge(edge(edge(state.root, label), signature), "return").id, state.name);
+        assert.notEqual(state.rawText, beforeReturn);
+      }
+      assert.match(state.rawText, /expandedCopyField: string/);
+      state = await driver.toggle(edge(state.root, label).id, state.name);
+      assert.doesNotMatch(state.rawText, /expanded(?:Copy|Input)Field:/);
+    }
+    state = await driver.toggle(edge(state.root, "methods").id, state.name);
+    state = await driver.toggle(edge(edge(state.root, "methods"), "get").id, state.name);
+    state = await driver.toggle(edge(edge(edge(state.root, "methods"), "get"), "call").id, state.name);
+    const beforeMethodParameter = state.rawText;
+    state = await driver.toggle(edge(edge(edge(edge(state.root, "methods"), "get"), "call"), "input").id, state.name);
+    assert.notEqual(state.rawText, beforeMethodParameter);
+    const input = edge(edge(edge(edge(state.root, "methods"), "get"), "call"), "input");
+    const inputMember = findRow(input, (row) => row.summary === "CopyInput" && row.expanded === false);
+    assert.ok(inputMember);
+    state = await driver.toggle(inputMember.id, state.name);
+    assert.match(state.rawText, /expandedInputField: number/);
+    assert.match(state.rawText, /get\(input\?:/);
+    const beforeMethodReturn = state.rawText;
+    state = await driver.toggle(edge(edge(edge(edge(state.root, "methods"), "get"), "call"), "return").id, state.name);
+    assert.notEqual(state.rawText, beforeMethodReturn);
+    assert.match(state.rawText, /expandedCopyField: string/);
+    state = await driver.toggle(edge(state.root, "methods").id, state.name);
+    assert.doesNotMatch(state.rawText, /expanded(?:Copy|Input)Field:/);
+    state = await driver.toggle(edge(state.root, "numeric").id, state.name);
+    const beforeNumeric = state.rawText;
+    state = await driver.toggle(edge(edge(state.root, "numeric"), '"0"').id, state.name);
+    assert.notEqual(state.rawText, beforeNumeric);
+    assert.match(state.rawText, /expandedCopyField: string/);
+
     await focusAlias(editor, document, "GenericTree");
     state = await driver.wait("GenericTree");
     for (const label of ["value", "key", "indexed", "conditional", "template", "mapped"]) {

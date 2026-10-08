@@ -47,6 +47,7 @@ export class ViewDriver {
   private closed = false;
   private attachmentError: unknown;
 
+  /** Correlate browser command responses and track execution contexts so tests can locate the rendered webview. */
   private constructor(private readonly socket: WebSocket) {
     socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as DebugMessage;

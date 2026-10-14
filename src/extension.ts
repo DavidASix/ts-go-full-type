@@ -30,7 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const view = new FullTypeViewProvider(context.extensionUri, {
     onVisibilityChanged: (visible) => focus.onVisibilityChanged(visible),
     onToggle: (viewNodeId) => void expansion.toggle(viewNodeId),
-    onGoToDefinition: (viewNodeId) => void expansion.goToDefinition(viewNodeId),
+    onGoToDefinition: (viewNodeId, target) => void expansion.goToDefinition(viewNodeId, target),
   }, wordWrap);
   expansion = new ExpansionController(view);
   focus = new FocusController(provider, expansion, view);

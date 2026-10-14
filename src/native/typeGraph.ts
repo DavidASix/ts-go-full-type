@@ -52,10 +52,16 @@ export interface DefinitionLocation {
 }
 
 type DefinitionTarget = Type | AsyncSymbol | NodeHandle;
+type DefinitionKind = "symbol" | "type";
+
+interface DefinitionTargets {
+  readonly symbol?: AsyncSymbol | NodeHandle;
+  readonly type?: Type;
+}
 
 export class TypeGraph {
   private readonly registry = new Map<string, RegistryEntry>();
-  private readonly definitionTargets = new Map<string, DefinitionTarget>();
+  private readonly definitionTargets = new Map<string, DefinitionTargets>();
   private nextNodeId = 1;
   private root: GraphNode | undefined;
   private rootType: Type | undefined;
@@ -155,12 +161,14 @@ export class TypeGraph {
   }
 
   /** Resolve the first source declaration associated with a visible semantic node. */
-  public getDefinition(viewNodeId: string): Promise<DefinitionLocation | undefined> {
+  public getDefinition(viewNodeId: string, kind: DefinitionKind): Promise<DefinitionLocation | undefined> {
     return this.enqueueResult(async () => {
-      const target = this.definitionTargets.get(viewNodeId);
-      if (target === undefined) {
+      const targets = this.definitionTargets.get(viewNodeId);
+      if (targets === undefined) {
         throw new UserVisibleError("This definition request is obsolete. Refresh the type and try again.");
       }
+      const target = targets[kind] ?? targets.type ?? targets.symbol;
+      if (target === undefined) return undefined;
       const declaration = await this.resolveDefinitionTarget(target);
       if (declaration === undefined) return undefined;
       const source = declaration.getSourceFile();
@@ -199,7 +207,7 @@ export class TypeGraph {
       const previousRegistry = new Map(this.registry);
       const previousDefinitions = new Map(this.definitionTargets);
       try {
-        const rootTarget = this.definitionTargets.get(previousRoot.viewNodeId);
+        const rootTarget = this.definitionTargets.get(previousRoot.viewNodeId)?.symbol;
         const next = await this.createRoot(this.rootType, isSymbolTarget(rootTarget) ? rootTarget : undefined);
         Object.assign(previousRoot, next);
         this.root = previousRoot;
@@ -370,7 +378,7 @@ export class TypeGraph {
         label: quotePropertyName(property.name),
         optional: Boolean(property.flags & SymbolFlags.Optional),
         readonly: await isReadonlyProperty(property, (operation) => this.query(operation)),
-        node: propertyType === undefined ? this.leaf("unknown", property) : await this.createChild(propertyType, ancestors, property),
+        node: propertyType === undefined ? this.leaf("unknown", { symbol: property }) : await this.createChild(propertyType, ancestors, property),
       }));
     }
     let hasSignatures = false;
@@ -379,7 +387,8 @@ export class TypeGraph {
       hasSignatures ||= signatures.length > 0;
       for (const [index, signature] of signatures.entries()) {
         const label = `${kind === SignatureKind.Call ? "call" : "new"}${signatures.length > 1 ? ` ${index + 1}` : ""}`;
-        const node = this.register(label, () => this.materializeSignature(signature, ancestors), "function", signature.declaration);
+        const node = this.register(label, () => this.materializeSignature(signature, ancestors), "function",
+          signature.declaration === undefined ? undefined : { symbol: signature.declaration });
         children.push(this.edge({ role: kind === SignatureKind.Call ? "call" : "construct", label, node }));
       }
     }
@@ -419,7 +428,7 @@ export class TypeGraph {
       children.push(this.edge({
         label: `${signature.hasRestParameter && index === parameters.length - 1 ? "..." : ""}${parameter.name}`,
         optional: Boolean(parameter.flags & SymbolFlags.Optional),
-        node: type === undefined ? this.leaf("unknown", parameter) : await this.createChild(type, ancestors, parameter),
+        node: type === undefined ? this.leaf("unknown", { symbol: parameter }) : await this.createChild(type, ancestors, parameter),
       }));
     }
     const returnType = await this.query(() => this.checker.getReturnTypeOfSignature(signature));
@@ -494,8 +503,9 @@ export class TypeGraph {
   private async createChild(type: Type, ancestors: readonly number[], symbol?: AsyncSymbol): Promise<GraphNode> {
     this.budget.assertCanAddNode();
     const text = await this.collapsedDisplay(type);
-    if (ancestors.includes(type.id)) return { ...this.leaf(text, symbol ?? type), content: { state: "recursive", layout: "atom" } };
-    if (!(await this.isExpandable(type))) return this.leaf(await this.print(type), symbol ?? type);
+    const definitions = { type, ...(symbol === undefined ? {} : { symbol }) };
+    if (ancestors.includes(type.id)) return { ...this.leaf(text, definitions), content: { state: "recursive", layout: "atom" } };
+    if (!(await this.isExpandable(type))) return this.leaf(await this.print(type), definitions);
     const branchAncestors = [...ancestors, type.id];
     const callable = type.isObjectType() &&
       (await this.query(() => this.checker.getPropertiesOfType(type))).length === 0 &&
@@ -508,7 +518,7 @@ export class TypeGraph {
     else if (await this.query(() => this.checker.isArrayType(type))) typeKind = "array";
     else if (callable) typeKind = "function";
     else if (type.isObjectType()) typeKind = "object";
-    const node = this.register(text, () => this.materialize(type, branchAncestors), typeKind, symbol ?? type);
+    const node = this.register(text, () => this.materialize(type, branchAncestors), typeKind, definitions);
     if (type.isObjectType() || type.isIntersectionType()) {
       const entry = this.getEntry(node.viewNodeId);
       this.registry.set(node.viewNodeId, {
@@ -531,12 +541,12 @@ export class TypeGraph {
     text: string,
     load: () => Promise<Materialized>,
     typeKind: NodeLayout | "function" = "function",
-    definition?: DefinitionTarget,
+    definitions?: DefinitionTargets,
   ): GraphNode {
     this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, typeKind, content: { state: "collapsed", layout: "atom" }};
     this.registry.set(node.viewNodeId, { node, load });
-    if (definition !== undefined) this.definitionTargets.set(node.viewNodeId, definition);
+    if (definitions !== undefined) this.definitionTargets.set(node.viewNodeId, definitions);
     return node;
   }
 
@@ -544,10 +554,10 @@ export class TypeGraph {
    * Allocate a terminal presentation node within the graph budget.
    * @param text Compiler presentation or label charged to the graph budget.
    */
-  private leaf(text: string, definition?: DefinitionTarget): GraphNode {
+  private leaf(text: string, definitions?: DefinitionTargets): GraphNode {
     this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, content: { state: "leaf", layout: "atom" }};
-    if (definition !== undefined) this.definitionTargets.set(node.viewNodeId, definition);
+    if (definitions !== undefined) this.definitionTargets.set(node.viewNodeId, definitions);
     return node;
   }
 

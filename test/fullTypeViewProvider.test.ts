@@ -43,8 +43,8 @@ describe("persistent webview ownership", () => {
     expect(h.documents).toHaveLength(1);
     h.listeners.get("message")!({ type: "toggle", viewNodeId: "node" });
     expect(events.onToggle).toHaveBeenCalledWith("node");
-    h.listeners.get("message")!({ type: "goToDefinition", viewNodeId: "node" });
-    expect(events.onGoToDefinition).toHaveBeenCalledWith("node");
+    h.listeners.get("message")!({ type: "goToDefinition", viewNodeId: "node", target: "type" });
+    expect(events.onGoToDefinition).toHaveBeenCalledWith("node", "type");
     provider.dispose();
     expect(h.listeners.size).toBe(0);
   });

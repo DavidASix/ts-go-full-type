@@ -10,7 +10,7 @@ export const VIEW_ID = "fullTypeViewer.type";
 export interface FullTypeViewEvents {
   readonly onVisibilityChanged: (visible: boolean) => void;
   readonly onToggle: (viewNodeId: string) => void;
-  readonly onGoToDefinition: (viewNodeId: string) => void;
+  readonly onGoToDefinition: (viewNodeId: string, target: "symbol" | "type") => void;
 }
 
 export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -61,7 +61,7 @@ export class FullTypeViewProvider implements vscode.WebviewViewProvider, vscode.
       view.webview.onDidReceiveMessage((raw: unknown) => {
         const message = parseWebviewMessage(raw);
         if (message?.type === "toggle") this.events.onToggle(message.viewNodeId);
-        else if (message?.type === "goToDefinition") this.events.onGoToDefinition(message.viewNodeId);
+        else if (message?.type === "goToDefinition") this.events.onGoToDefinition(message.viewNodeId, message.target);
         else if (message?.type === "ready") {
           this.ready = true;
           this.render();

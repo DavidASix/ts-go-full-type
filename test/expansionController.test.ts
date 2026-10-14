@@ -67,8 +67,8 @@ describe("ExpansionController", () => {
     });
     const controller = new ExpansionController({ setState: vi.fn(), getState: vi.fn() } as unknown as FullTypeViewProvider);
     await controller.replace(current.value);
-    await controller.goToDefinition("1:2");
-    expect(current.graph.getDefinition).toHaveBeenCalledWith("1:2");
+    await controller.goToDefinition("1:2", "type");
+    expect(current.graph.getDefinition).toHaveBeenCalledWith("1:2", "type");
     expect(showTextDocument).toHaveBeenCalledWith({ fileName: "/workspace/types.ts" }, expect.objectContaining({ preview: true }));
     await controller.dispose();
   });

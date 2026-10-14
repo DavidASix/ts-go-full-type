@@ -237,27 +237,48 @@ describe("TypeGraph", () => {
   it("resolves definitions retained for property nodes in the visible tree", async () => {
     const h = createHarness();
     const owner = h.type("Owner", "object");
-    h.property(owner, "value", h.type("string"));
-    const source = {
-      fileName: "/workspace/model.ts",
+    const value = h.type("Value", "leaf", { named: true });
+    h.property(owner, "value", value);
+    const propertySource = {
+      fileName: "/workspace/owner.ts",
       getLineAndCharacterOfPosition: (position: number) => ({ line: 4, character: position - 20 }),
     };
-    const declaration = {
-      getSourceFile: () => source,
+    const propertyDeclaration = {
+      getSourceFile: () => propertySource,
       getStart: () => 22,
       getEnd: () => 27,
     } as unknown as Node;
     const symbol = h.model(owner).properties[0]!.symbol as AsyncSymbol & {
       declarations: unknown[]; valueDeclaration: unknown;
     };
-    symbol.declarations = [{ resolve: async () => declaration } as unknown as AsyncSymbol["declarations"][number]];
+    symbol.declarations = [{ resolve: async () => propertyDeclaration } as unknown as AsyncSymbol["declarations"][number]];
     symbol.valueDeclaration = symbol.declarations[0];
+    const typeSource = {
+      fileName: "/workspace/value.ts",
+      getLineAndCharacterOfPosition: (position: number) => ({ line: 1, character: position - 5 }),
+    };
+    const typeDeclaration = {
+      getSourceFile: () => typeSource,
+      getStart: () => 6,
+      getEnd: () => 11,
+    } as unknown as Node;
+    const typeSymbol = {
+      declarations: [{ resolve: async () => typeDeclaration }],
+      valueDeclaration: undefined,
+    } as unknown as AsyncSymbol;
+    Object.assign(value, { getAliasSymbol: async () => typeSymbol });
     const graph = new TypeGraph(h.project, enclosing, 20);
     const root = await graph.createRoot(owner);
-    await expect(graph.getDefinition(root.content.children![0]!.node.viewNodeId)).resolves.toEqual({
-      fileName: "/workspace/model.ts",
+    const childId = root.content.children![0]!.node.viewNodeId;
+    await expect(graph.getDefinition(childId, "symbol")).resolves.toEqual({
+      fileName: "/workspace/owner.ts",
       start: { line: 4, character: 2 },
       end: { line: 4, character: 7 },
+    });
+    await expect(graph.getDefinition(childId, "type")).resolves.toEqual({
+      fileName: "/workspace/value.ts",
+      start: { line: 1, character: 1 },
+      end: { line: 1, character: 6 },
     });
   });
 

@@ -24,7 +24,13 @@ describe("webview tree interactions", () => {
       expect(menu.hidden).toBe(false);
       items[0]!.click();
       expect(menu.hidden).toBe(true);
-      expect(h.messages.at(-1)).toEqual({ type: "goToDefinition", viewNodeId: "nested" });
+      expect(h.messages.at(-1)).toEqual({ type: "goToDefinition", viewNodeId: "nested", target: "type" });
+
+      row.querySelector<HTMLElement>(".tree-label")!.dispatchEvent(new h.window.MouseEvent("contextmenu", {
+        bubbles: true, cancelable: true,
+      }));
+      items[0]!.click();
+      expect(h.messages.at(-1)).toEqual({ type: "goToDefinition", viewNodeId: "nested", target: "symbol" });
 
       row.querySelector<HTMLElement>(".tree-row")!.dispatchEvent(new h.window.MouseEvent("contextmenu", {
         bubbles: true, cancelable: true,

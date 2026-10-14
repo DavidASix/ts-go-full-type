@@ -21,16 +21,17 @@ let tree = document.querySelector<HTMLElement>('[role="tree"]');
 let scrollSurface = document.querySelector<HTMLElement>(".scroll");
 const contextMenu = document.getElementById("context-menu");
 let contextNodeId: string | undefined;
+let contextTarget: "symbol" | "type" = "type";
 
 interface ContextMenuAction {
   readonly id: string;
   readonly label: string;
-  run(viewNodeId: string): void;
+  run(viewNodeId: string, target: "symbol" | "type"): void;
 }
 
 /** Ordered actions make adding future node commands independent of menu plumbing. */
 const contextMenuActions: readonly ContextMenuAction[] = [
-  { id: "go-to-definition", label: "Go to Definition", run: (viewNodeId) => vscode.postMessage({ type: "goToDefinition", viewNodeId }) },
+  { id: "go-to-definition", label: "Go to Definition", run: (viewNodeId, target) => vscode.postMessage({ type: "goToDefinition", viewNodeId, target }) },
   { id: "cancel", label: "Cancel", run: () => {} },
 ];
 
@@ -40,9 +41,10 @@ function closeContextMenu(): void {
   contextNodeId = undefined;
 }
 
-function showContextMenu(item: HTMLElement, clientX: number, clientY: number): void {
+function showContextMenu(item: HTMLElement, target: "symbol" | "type", clientX: number, clientY: number): void {
   if (contextMenu === null || item.dataset.nodeId === undefined) return;
   contextNodeId = item.dataset.nodeId;
+  contextTarget = target;
   contextMenu.hidden = false;
   contextMenu.style.left = `${clientX}px`;
   contextMenu.style.top = `${clientY}px`;
@@ -66,7 +68,7 @@ if (contextMenu !== null) {
     const action = contextMenuActions.find((candidate) => candidate.id === button?.dataset.action);
     const viewNodeId = contextNodeId;
     closeContextMenu();
-    if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId);
+    if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId, contextTarget);
   });
 }
 
@@ -145,7 +147,8 @@ document.addEventListener("contextmenu", (event) => {
   if (item?.getAttribute("role") !== "treeitem") return;
   event.preventDefault();
   focus(item, true);
-  showContextMenu(item, event.clientX, event.clientY);
+  const target = event.target.closest(".tree-label") === null ? "type" : "symbol";
+  showContextMenu(item, target, event.clientX, event.clientY);
 });
 
 document.addEventListener("pointerdown", (event) => {

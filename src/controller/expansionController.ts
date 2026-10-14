@@ -37,11 +37,11 @@ export class ExpansionController {
   }
 
   /** Open the source declaration represented by a visible tree node. */
-  public async goToDefinition(viewNodeId: string): Promise<void> {
+  public async goToDefinition(viewNodeId: string, target: "symbol" | "type"): Promise<void> {
     const session = this.session;
     if (session === undefined) return;
     try {
-      const definition = await session.graph.getDefinition(viewNodeId);
+      const definition = await session.graph.getDefinition(viewNodeId, target);
       if (this.session !== session) return;
       if (definition === undefined) {
         void vscode.window.showInformationMessage("Full Type Viewer: No definition was found for this node.");

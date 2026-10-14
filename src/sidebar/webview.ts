@@ -36,6 +36,10 @@ const contextMenuActions: readonly ContextMenuAction[] = [
   { id: "cancel", label: "Cancel", run: () => {} },
 ];
 
+/**
+ * Hide the node menu and optionally return keyboard control to its originating row.
+ * @param restoreFocus Whether dismissal should restore focus to the tree item.
+ */
 function closeContextMenu(restoreFocus = false): void {
   if (contextMenu === null) return;
   const item = contextItem;
@@ -45,6 +49,13 @@ function closeContextMenu(restoreFocus = false): void {
   if (restoreFocus && item?.isConnected === true) focus(item, true);
 }
 
+/**
+ * Open the node menu for a semantic target and keep it within the viewport.
+ * @param item Tree item that owns the menu invocation.
+ * @param target Semantic part of the row selected by the pointer.
+ * @param clientX Horizontal pointer coordinate in the viewport.
+ * @param clientY Vertical pointer coordinate in the viewport.
+ */
 function showContextMenu(item: HTMLElement, target: "symbol" | "type", clientX: number, clientY: number): void {
   if (contextMenu === null || item.dataset.nodeId === undefined) return;
   contextNodeId = item.dataset.nodeId;
@@ -59,6 +70,18 @@ function showContextMenu(item: HTMLElement, target: "symbol" | "type", clientX: 
   contextMenu.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
 }
 
+/**
+ * Run the selected menu action against the captured tree node.
+ * @param event Menu click whose button identifies the selected action.
+ */
+function handleContextMenuClick(event: MouseEvent): void {
+  const button = event.target instanceof HTMLElement ? event.target.closest<HTMLButtonElement>("button[data-action]") : null;
+  const action = contextMenuActions.find((candidate) => candidate.id === button?.dataset.action);
+  const viewNodeId = contextNodeId;
+  closeContextMenu(action?.id === "cancel");
+  if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId, contextTarget);
+}
+
 if (contextMenu !== null) {
   for (const action of contextMenuActions) {
     const button = document.createElement("button");
@@ -68,13 +91,7 @@ if (contextMenu !== null) {
     button.textContent = action.label;
     contextMenu.append(button);
   }
-  contextMenu.addEventListener("click", (event) => {
-    const button = event.target instanceof HTMLElement ? event.target.closest<HTMLButtonElement>("button[data-action]") : null;
-    const action = contextMenuActions.find((candidate) => candidate.id === button?.dataset.action);
-    const viewNodeId = contextNodeId;
-    closeContextMenu(action?.id === "cancel");
-    if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId, contextTarget);
-  });
+  contextMenu.addEventListener("click", handleContextMenuClick);
 }
 
 /**
@@ -146,7 +163,11 @@ document.addEventListener("click", (event) => {
   toggle(item);
 });
 
-document.addEventListener("contextmenu", (event) => {
+/**
+ * Capture a tree-row context request and choose its symbol or type target.
+ * @param event Pointer context-menu event originating within the document.
+ */
+function handleTreeContextMenu(event: MouseEvent): void {
   if (!(event.target instanceof HTMLElement)) return;
   const item = event.target.closest<HTMLElement>(".tree-row")?.parentElement;
   if (item?.getAttribute("role") !== "treeitem") return;
@@ -154,7 +175,9 @@ document.addEventListener("contextmenu", (event) => {
   focus(item, true);
   const target = event.target.closest(".tree-label") === null ? "type" : "symbol";
   showContextMenu(item, target, event.clientX, event.clientY);
-});
+}
+
+document.addEventListener("contextmenu", handleTreeContextMenu);
 
 document.addEventListener("pointerdown", (event) => {
   if (contextMenu !== null && !contextMenu.hidden && event.target instanceof Node && !contextMenu.contains(event.target)) closeContextMenu();

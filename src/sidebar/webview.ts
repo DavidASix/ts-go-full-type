@@ -22,6 +22,7 @@ let scrollSurface = document.querySelector<HTMLElement>(".scroll");
 const contextMenu = document.getElementById("context-menu");
 let contextNodeId: string | undefined;
 let contextTarget: "symbol" | "type" = "type";
+let contextItem: HTMLElement | undefined;
 
 interface ContextMenuAction {
   readonly id: string;
@@ -35,16 +36,20 @@ const contextMenuActions: readonly ContextMenuAction[] = [
   { id: "cancel", label: "Cancel", run: () => {} },
 ];
 
-function closeContextMenu(): void {
+function closeContextMenu(restoreFocus = false): void {
   if (contextMenu === null) return;
+  const item = contextItem;
   contextMenu.hidden = true;
   contextNodeId = undefined;
+  contextItem = undefined;
+  if (restoreFocus && item?.isConnected === true) focus(item, true);
 }
 
 function showContextMenu(item: HTMLElement, target: "symbol" | "type", clientX: number, clientY: number): void {
   if (contextMenu === null || item.dataset.nodeId === undefined) return;
   contextNodeId = item.dataset.nodeId;
   contextTarget = target;
+  contextItem = item;
   contextMenu.hidden = false;
   contextMenu.style.left = `${clientX}px`;
   contextMenu.style.top = `${clientY}px`;
@@ -67,7 +72,7 @@ if (contextMenu !== null) {
     const button = event.target instanceof HTMLElement ? event.target.closest<HTMLButtonElement>("button[data-action]") : null;
     const action = contextMenuActions.find((candidate) => candidate.id === button?.dataset.action);
     const viewNodeId = contextNodeId;
-    closeContextMenu();
+    closeContextMenu(action?.id === "cancel");
     if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId, contextTarget);
   });
 }
@@ -157,7 +162,7 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && contextMenu?.hidden === false) {
-    closeContextMenu();
+    closeContextMenu(true);
     event.preventDefault();
     return;
   }

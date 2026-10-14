@@ -39,6 +39,14 @@ describe("webview tree interactions", () => {
       items[1]!.click();
       expect(menu.hidden).toBe(true);
       expect(h.messages).toHaveLength(messageCount);
+      expect(h.document.activeElement).toBe(row);
+
+      row.querySelector<HTMLElement>(".tree-row")!.dispatchEvent(new h.window.MouseEvent("contextmenu", {
+        bubbles: true, cancelable: true,
+      }));
+      items[0]!.dispatchEvent(new h.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(menu.hidden).toBe(true);
+      expect(h.document.activeElement).toBe(row);
     } finally { h.close(); }
   });
 

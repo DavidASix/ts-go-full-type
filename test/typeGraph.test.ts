@@ -234,6 +234,33 @@ import { deferred } from "./support/deferred";
 const enclosing = {} as Node;
 
 describe("TypeGraph", () => {
+  it("resolves definitions retained for property nodes in the visible tree", async () => {
+    const h = createHarness();
+    const owner = h.type("Owner", "object");
+    h.property(owner, "value", h.type("string"));
+    const source = {
+      fileName: "/workspace/model.ts",
+      getLineAndCharacterOfPosition: (position: number) => ({ line: 4, character: position - 20 }),
+    };
+    const declaration = {
+      getSourceFile: () => source,
+      getStart: () => 22,
+      getEnd: () => 27,
+    } as unknown as Node;
+    const symbol = h.model(owner).properties[0]!.symbol as AsyncSymbol & {
+      declarations: unknown[]; valueDeclaration: unknown;
+    };
+    symbol.declarations = [{ resolve: async () => declaration } as unknown as AsyncSymbol["declarations"][number]];
+    symbol.valueDeclaration = symbol.declarations[0];
+    const graph = new TypeGraph(h.project, enclosing, 20);
+    const root = await graph.createRoot(owner);
+    await expect(graph.getDefinition(root.content.children![0]!.node.viewNodeId)).resolves.toEqual({
+      fileName: "/workspace/model.ts",
+      start: { line: 4, character: 2 },
+      end: { line: 4, character: 7 },
+    });
+  });
+
   it("preserves tuple labels and optional/rest relationships in visible rows", async () => {
     const h = createHarness();
     const tuple = h.type("[name: string, count?: number, ...items: Payload[]]", "tuple");

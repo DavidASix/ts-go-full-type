@@ -29,7 +29,7 @@ function view() {
 
 describe("persistent webview ownership", () => {
   it("creates one document and sends the latest state after the ready handshake", async () => {
-    const events = { onVisibilityChanged: vi.fn(), onToggle: vi.fn() };
+    const events = { onVisibilityChanged: vi.fn(), onToggle: vi.fn(), onGoToDefinition: vi.fn() };
     const provider = new FullTypeViewProvider({} as vscode.Uri, events, false);
     const h = view(); provider.resolveWebviewView(h.value);
     provider.setState({ kind: "loading", message: "Resolving <Symbol>" });
@@ -43,12 +43,16 @@ describe("persistent webview ownership", () => {
     expect(h.documents).toHaveLength(1);
     h.listeners.get("message")!({ type: "toggle", viewNodeId: "node" });
     expect(events.onToggle).toHaveBeenCalledWith("node");
+    h.listeners.get("message")!({ type: "goToDefinition", viewNodeId: "node" });
+    expect(events.onGoToDefinition).toHaveBeenCalledWith("node");
     provider.dispose();
     expect(h.listeners.size).toBe(0);
   });
 
   it("releases old view subscriptions and waits for each replacement document to be ready", () => {
-    const provider = new FullTypeViewProvider({} as vscode.Uri, { onVisibilityChanged: vi.fn(), onToggle: vi.fn() }, false);
+    const provider = new FullTypeViewProvider({} as vscode.Uri, {
+      onVisibilityChanged: vi.fn(), onToggle: vi.fn(), onGoToDefinition: vi.fn(),
+    }, false);
     const first = view(); provider.resolveWebviewView(first.value);
     first.listeners.get("message")!({ type: "ready" });
     const next = view(); provider.resolveWebviewView(next.value);

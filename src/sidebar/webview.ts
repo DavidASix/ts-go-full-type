@@ -19,6 +19,56 @@ interface SavedTreeState {
 const vscode = acquireVsCodeApi();
 let tree = document.querySelector<HTMLElement>('[role="tree"]');
 let scrollSurface = document.querySelector<HTMLElement>(".scroll");
+const contextMenu = document.getElementById("context-menu");
+let contextNodeId: string | undefined;
+
+interface ContextMenuAction {
+  readonly id: string;
+  readonly label: string;
+  run(viewNodeId: string): void;
+}
+
+/** Ordered actions make adding future node commands independent of menu plumbing. */
+const contextMenuActions: readonly ContextMenuAction[] = [
+  { id: "go-to-definition", label: "Go to Definition", run: (viewNodeId) => vscode.postMessage({ type: "goToDefinition", viewNodeId }) },
+  { id: "cancel", label: "Cancel", run: () => {} },
+];
+
+function closeContextMenu(): void {
+  if (contextMenu === null) return;
+  contextMenu.hidden = true;
+  contextNodeId = undefined;
+}
+
+function showContextMenu(item: HTMLElement, clientX: number, clientY: number): void {
+  if (contextMenu === null || item.dataset.nodeId === undefined) return;
+  contextNodeId = item.dataset.nodeId;
+  contextMenu.hidden = false;
+  contextMenu.style.left = `${clientX}px`;
+  contextMenu.style.top = `${clientY}px`;
+  const bounds = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = `${Math.max(0, Math.min(clientX, window.innerWidth - bounds.width))}px`;
+  contextMenu.style.top = `${Math.max(0, Math.min(clientY, window.innerHeight - bounds.height))}px`;
+  contextMenu.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+}
+
+if (contextMenu !== null) {
+  for (const action of contextMenuActions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.action = action.id;
+    button.setAttribute("role", "menuitem");
+    button.textContent = action.label;
+    contextMenu.append(button);
+  }
+  contextMenu.addEventListener("click", (event) => {
+    const button = event.target instanceof HTMLElement ? event.target.closest<HTMLButtonElement>("button[data-action]") : null;
+    const action = contextMenuActions.find((candidate) => candidate.id === button?.dataset.action);
+    const viewNodeId = contextNodeId;
+    closeContextMenu();
+    if (action !== undefined && viewNodeId !== undefined) action.run(viewNodeId);
+  });
+}
 
 /**
  * Recover persisted tree navigation state from the webview API.
@@ -89,7 +139,25 @@ document.addEventListener("click", (event) => {
   toggle(item);
 });
 
+document.addEventListener("contextmenu", (event) => {
+  if (!(event.target instanceof HTMLElement)) return;
+  const item = event.target.closest<HTMLElement>(".tree-row")?.parentElement;
+  if (item?.getAttribute("role") !== "treeitem") return;
+  event.preventDefault();
+  focus(item, true);
+  showContextMenu(item, event.clientX, event.clientY);
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (contextMenu !== null && !contextMenu.hidden && event.target instanceof Node && !contextMenu.contains(event.target)) closeContextMenu();
+});
+
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && contextMenu?.hidden === false) {
+    closeContextMenu();
+    event.preventDefault();
+    return;
+  }
   if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "treeitem") return;
   const item = event.target;
   const rows = items();
@@ -146,6 +214,7 @@ let lastHtml: string | undefined;
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   const update = parseWebviewUpdate(event.data);
   if (update === undefined || content === null) return;
+  closeContextMenu();
   const palette = document.getElementById("theme-palette");
   if (palette !== null) palette.textContent = `.type-tree {\n${update.paletteCss}\n}`;
   if (update.html === lastHtml) return;

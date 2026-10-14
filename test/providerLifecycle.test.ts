@@ -104,6 +104,7 @@ describe("serialized resolution ownership", () => {
     const loaded = snapshot("wanted text");
     Object.assign(loaded.project, { configFileName: "/tsconfig.json", checker: {
       getTypeFromTypeNode: async () => nativeType, typeToString: async () => "string",
+      getSymbolAtLocation: async () => undefined,
     } });
     vi.spyOn(focusModule, "findSymbolFocus").mockReturnValue({ name: "Example", start: 0, end: 7, node: {} as Node, typeNode: {} as TypeNode });
     const { provider, connection } = setup(vi.fn(async () => loaded.value));

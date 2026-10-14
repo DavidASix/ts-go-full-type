@@ -186,12 +186,16 @@ export class CompleteTypeProvider implements vscode.Disposable {
       const type = await query(() => resolveFocusedType(project!.checker, uri, focus, check));
       if (type === undefined) { await this.releaseSnapshot(snapshot); return undefined; }
       if (type.isErrorType()) throw new UserVisibleError("TypeScript 7 could not resolve a semantic type for this symbol.");
+      const selectedSymbol = await query(() => project!.checker.getSymbolAtLocation(focus.node));
+      const rootSymbol = selectedSymbol !== undefined && selectedSymbol.flags & SymbolFlags.Alias
+        ? await query(() => project!.checker.getAliasedSymbol(selectedSymbol))
+        : selectedSymbol;
       let published = false;
       const graph = new TypeGraph(project, focus.node, request.generation, () => {
         if (!published) check();
         else if (!this.connection.isCurrent(connected)) throw new RequestCancelledError();
       });
-      const root = await graph.createRoot(type);
+      const root = await graph.createRoot(type, rootSymbol);
       check();
       const result: CompleteTypeResult = {
         name: focus.name, root, compilerVersion: "7.0.2", sourceUri: uri,

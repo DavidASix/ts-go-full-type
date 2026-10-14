@@ -11,6 +11,31 @@ export const state: ViewState = { kind: "success", rawText: "", result: {
 } };
 
 describe("webview tree interactions", () => {
+  it("opens an extensible two-item node menu and keeps Cancel second", async () => {
+    const h = await webviewHarness(state);
+    try {
+      const row = h.row("nested");
+      row.querySelector<HTMLElement>(".tree-row")!.dispatchEvent(new h.window.MouseEvent("contextmenu", {
+        bubbles: true, cancelable: true, clientX: 12, clientY: 18,
+      }));
+      const menu = h.document.getElementById("context-menu")!;
+      const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+      expect(items.map((item) => item.textContent)).toEqual(["Go to Definition", "Cancel"]);
+      expect(menu.hidden).toBe(false);
+      items[0]!.click();
+      expect(menu.hidden).toBe(true);
+      expect(h.messages.at(-1)).toEqual({ type: "goToDefinition", viewNodeId: "nested" });
+
+      row.querySelector<HTMLElement>(".tree-row")!.dispatchEvent(new h.window.MouseEvent("contextmenu", {
+        bubbles: true, cancelable: true,
+      }));
+      const messageCount = h.messages.length;
+      items[1]!.click();
+      expect(menu.hidden).toBe(true);
+      expect(h.messages).toHaveLength(messageCount);
+    } finally { h.close(); }
+  });
+
   it("moves focus through visible rows and posts expansion only for expandable nodes", async () => {
     const h = await webviewHarness(state);
     try {

@@ -65,6 +65,10 @@ export function renderHtml(state: ViewState, resources: HtmlResources): string {
     .metadata { margin: 0 0 8px; font: 11px/1.5 var(--vscode-font-family, sans-serif); color: var(--vscode-descriptionForeground); }
     .metadata summary { cursor: pointer; }
     .metadata div { padding: 4px 0; overflow-wrap: anywhere; }
+    .context-menu { position: fixed; z-index: 10; min-width: 170px; padding: 3px 0; border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border)); border-radius: 4px; background: var(--vscode-menu-background, var(--vscode-editorWidget-background)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
+    .context-menu[hidden] { display: none; }
+    .context-menu button { display: block; width: 100%; padding: 5px 24px; border: 0; color: inherit; background: transparent; text-align: left; font: 12px/1.4 var(--vscode-font-family); }
+    .context-menu button:hover, .context-menu button:focus { outline: none; color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground)); background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground)); }
     .tok-keyword { color: var(--ft-keyword, var(--ft-code)); }
     .tok-type { color: var(--ft-type, var(--ft-code)); }
     .tok-property { color: var(--ft-property, var(--ft-code)); }
@@ -81,7 +85,7 @@ export function renderHtml(state: ViewState, resources: HtmlResources): string {
 ${renderPaletteProperties(resources.palette)}
   }</style>
 </head>
-<body><main id="content">${body}</main><script nonce="${escapeAttribute(resources.nonce)}" src="${escapeAttribute(resources.scriptUri.toString())}"></script></body>
+<body><main id="content">${body}</main><div id="context-menu" class="context-menu" role="menu" hidden></div><script nonce="${escapeAttribute(resources.nonce)}" src="${escapeAttribute(resources.scriptUri.toString())}"></script></body>
 </html>`;
 }
 

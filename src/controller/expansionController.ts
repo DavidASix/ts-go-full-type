@@ -36,6 +36,33 @@ export class ExpansionController {
     await this.mutate(async (session) => session.graph.collapseAll());
   }
 
+  /** Open the source declaration represented by a visible tree node. */
+  public async goToDefinition(viewNodeId: string): Promise<void> {
+    const session = this.session;
+    if (session === undefined) return;
+    try {
+      const definition = await session.graph.getDefinition(viewNodeId);
+      if (this.session !== session) return;
+      if (definition === undefined) {
+        void vscode.window.showInformationMessage("Full Type Viewer: No definition was found for this node.");
+        return;
+      }
+      const start = new vscode.Position(definition.start.line, definition.start.character);
+      const end = new vscode.Position(definition.end.line, definition.end.character);
+      const uri = definition.fileName.startsWith("file:")
+        ? vscode.Uri.parse(definition.fileName)
+        : vscode.Uri.file(definition.fileName);
+      await vscode.window.showTextDocument(uri, {
+        preview: true,
+        selection: new vscode.Range(start, end),
+      });
+    } catch (error) {
+      if (this.session !== session) return;
+      const message = errorMessage(error);
+      void vscode.window.showErrorMessage(`Full Type Viewer: ${message}`);
+    }
+  }
+
   /**
    * Write the currently visible TypeScript representation to the clipboard.
    */

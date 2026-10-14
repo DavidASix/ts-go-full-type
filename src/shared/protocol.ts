@@ -45,6 +45,7 @@ export type ViewState =
 
 export type WebviewMessage =
   | { readonly type: "toggle"; readonly viewNodeId: string }
+  | { readonly type: "goToDefinition"; readonly viewNodeId: string }
   | { readonly type: "ready" };
 
 export interface WebviewUpdate {
@@ -76,12 +77,12 @@ export function parseWebviewMessage(value: unknown): WebviewMessage | undefined 
     return Object.keys(value).length === 1 ? { type: "ready" } : undefined;
   }
   if (
-    value.type === "toggle" &&
+    (value.type === "toggle" || value.type === "goToDefinition") &&
     typeof value.viewNodeId === "string" &&
     value.viewNodeId.length > 0 &&
     Object.keys(value).length === 2
   ) {
-    return { type: "toggle", viewNodeId: value.viewNodeId };
+    return { type: value.type, viewNodeId: value.viewNodeId };
   }
   return undefined;
 }

@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { writeText } = vi.hoisted(() => ({
+const { writeText, showTextDocument, showInformationMessage } = vi.hoisted(() => ({
   writeText: vi.fn(async (_value: string) => undefined),
+  showTextDocument: vi.fn(async () => undefined),
+  showInformationMessage: vi.fn(),
 }));
 vi.mock("vscode", () => ({
   env: { clipboard: { writeText } },
-  window: { showErrorMessage: vi.fn() },
+  window: { showErrorMessage: vi.fn(), showInformationMessage, showTextDocument },
+  Uri: { file: (fileName: string) => ({ fileName }), parse: (uri: string) => ({ uri }) },
+  Position: class Position { public constructor(public line: number, public character: number) {} },
+  Range: class Range { public constructor(public start: unknown, public end: unknown) {} },
 }));
 
 import { deferred } from "./support/deferred";
@@ -41,6 +46,7 @@ function session(generation: number) {
     toggle: vi.fn(async () => undefined),
     expandFrontier: vi.fn(async () => undefined),
     collapseAll: vi.fn(),
+    getDefinition: vi.fn(async () => undefined),
   } as unknown as TypeGraph;
   const value = {
     result: result(generation),
@@ -52,6 +58,21 @@ function session(generation: number) {
 }
 
 describe("ExpansionController", () => {
+  it("opens a tree node definition in the editor", async () => {
+    const current = session(1);
+    vi.spyOn(current.graph, "getDefinition").mockResolvedValueOnce({
+      fileName: "/workspace/types.ts",
+      start: { line: 2, character: 3 },
+      end: { line: 2, character: 8 },
+    });
+    const controller = new ExpansionController({ setState: vi.fn(), getState: vi.fn() } as unknown as FullTypeViewProvider);
+    await controller.replace(current.value);
+    await controller.goToDefinition("1:2");
+    expect(current.graph.getDefinition).toHaveBeenCalledWith("1:2");
+    expect(showTextDocument).toHaveBeenCalledWith({ fileName: "/workspace/types.ts" }, expect.objectContaining({ preview: true }));
+    await controller.dispose();
+  });
+
   it("disposes the prior snapshot session when a new result replaces it", async () => {
     let state: ViewState = { kind: "idle", message: "idle" };
     const view = {

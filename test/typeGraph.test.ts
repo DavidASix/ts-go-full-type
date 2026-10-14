@@ -234,6 +234,18 @@ import { deferred } from "./support/deferred";
 const enclosing = {} as Node;
 
 describe("TypeGraph", () => {
+  it("returns no definition for a current synthetic signature without treating it as stale", async () => {
+    const h = createHarness();
+    const callable = h.type("Callable", "object");
+    const returns = h.type("void");
+    h.signature(callable, SignatureKind.Call, [], returns);
+    const graph = new TypeGraph(h.project, enclosing, 21);
+    const root = await graph.createRoot(callable);
+    const signature = root.content.children!.find((edge) => edge.role === "call")!.node;
+    await expect(graph.getDefinition(signature.viewNodeId, "symbol")).resolves.toBeUndefined();
+    await expect(graph.getDefinition("21:missing", "symbol")).rejects.toThrow(UserVisibleError);
+  });
+
   it("resolves definitions retained for property nodes in the visible tree", async () => {
     const h = createHarness();
     const owner = h.type("Owner", "object");

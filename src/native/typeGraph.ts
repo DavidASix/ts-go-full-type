@@ -546,7 +546,7 @@ export class TypeGraph {
     this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, typeKind, content: { state: "collapsed", layout: "atom" }};
     this.registry.set(node.viewNodeId, { node, load });
-    if (definitions !== undefined) this.definitionTargets.set(node.viewNodeId, definitions);
+    this.definitionTargets.set(node.viewNodeId, definitions ?? {});
     return node;
   }
 
@@ -557,7 +557,7 @@ export class TypeGraph {
   private leaf(text: string, definitions?: DefinitionTargets): GraphNode {
     this.budget.addNode(text);
     const node: GraphNode = { viewNodeId: this.allocateId(), text, content: { state: "leaf", layout: "atom" }};
-    if (definitions !== undefined) this.definitionTargets.set(node.viewNodeId, definitions);
+    this.definitionTargets.set(node.viewNodeId, definitions ?? {});
     return node;
   }
 

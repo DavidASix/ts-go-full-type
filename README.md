@@ -70,3 +70,7 @@ The view-title actions refresh the current symbol, expand the visible frontier b
 - This is not a Marketplace release or a replacement for TypeScript hover and language navigation.
 
 See `DEVELOPMENT.md` for architecture, testing, packaging, and troubleshooting. The behavioral contract is summarized in `SPEC.md`.
+
+## License
+
+Licensed under the permissive 0BSD license. See `LICENSE` for the full text.

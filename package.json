@@ -4,7 +4,7 @@
   "description": "Shows complete, lazily expandable TypeScript 7 symbol types in a dedicated sidebar view.",
   "version": "0.0.4",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "0BSD",
   "engines": {
     "vscode": "^1.126.0"
   },

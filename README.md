@@ -4,6 +4,12 @@ Full Type Viewer is a VS Code Insiders extension for exploring complete TypeScri
 
 The extension is useful when hover output is too abbreviated to understand a large union, nested object, inferred schema, or recursive type. It exposes the type one semantic level at a time instead of eagerly expanding the entire graph.
 
+## Screenshots
+
+| Nested API contract | Discriminated workflow union |
+| :---: | :---: |
+| <img src="docs/images/api-contract.webp" alt="Full Type Viewer expanding a nested TypeScript API contract" width="540" /> | <img src="docs/images/workflow-union.webp" alt="Full Type Viewer displaying a discriminated TypeScript workflow union" width="540" /> |
+
 ## AI Usage
 
 This app is 100% vibe-coded, it's not a representation of what the author thinks is "good code", but more of a "ends justify the means". If you contribute, please don't put too much energy into it. Honestly don't even read this README, I didn't, it's also slop.

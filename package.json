@@ -152,6 +152,8 @@
     "dist/webview.js",
     "resources/full-type-viewer.svg",
     "README.md",
+    "DEVELOPMENT.md",
+    "SPEC.md",
     "LICENSE"
   ]
 }

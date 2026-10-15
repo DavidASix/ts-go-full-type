@@ -4,6 +4,13 @@ Full Type Viewer is a VS Code Insiders extension for exploring complete TypeScri
 
 The extension is useful when hover output is too abbreviated to understand a large union, nested object, inferred schema, or recursive type. It exposes the type one semantic level at a time instead of eagerly expanding the entire graph.
 
+## AI Usage
+
+This app is 100% vibe-coded, it's not a representation of what the author thinks is "good code", but more of a "ends justify the means". If you contribute, please don't put too much energy into it. Honestly don't even read this README, I didn't, it's also slop.
+
+<img width="225" alt="certified slop code" src="https://github.com/user-attachments/assets/4c875ed9-90ce-41a9-abae-5d91569d6169" />
+
+
 ## Features
 
 - Follows the TypeScript identifier under the cursor or a selection within one identifier.
